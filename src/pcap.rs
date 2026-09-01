@@ -1,6 +1,14 @@
 use std::error::Error;
 
 #[derive(Debug)]
+pub struct PcapPacketHeader{
+    ts_sec : u32,
+    ts_fractional : u32,
+    incl_len: u32,
+    orig_len: u32,
+}
+
+#[derive(Debug)]
 pub struct PcapGlobalHeader{
     magic_number: u32,
     version_major: u16,
@@ -35,6 +43,28 @@ pub fn parse_global_header(bytes: &[u8]) -> Result<PcapGlobalHeader, Box<dyn Err
     })
 }
 
+pub fn parse_packet_header(bytes: &[u8], is_nano: bool, packet_number : usize) -> Result<PcapPacketHeader, Box<dyn Error>> {
+    if bytes.len() < 16 {
+        return Err("PacketHeader is too small".into());
+    }
+
+    let ts_sec = u32::from_le_bytes(bytes[0..4].try_into().map_err(|_| "Failed to parse seconds")?);
+    let ts_fractional = u32::from_le_bytes(bytes[4..8].try_into().map_err(|_| "Failed to parse fractional timestamp")?);
+    let incl_len = u32::from_le_bytes(bytes[8..12].try_into().map_err(|_| "Failed to parse included length")?);
+
+    // Print it out exactly as you requested
+    let unit = if is_nano { "nanoseconds" } else { "microseconds" };
+
+    println!("Packet number {}   Timestamp: {} seconds, {} {}       Included size: {}", packet_number,ts_sec, ts_fractional, unit,incl_len);
+
+    Ok(PcapPacketHeader {
+        ts_sec,
+        ts_fractional,
+        incl_len,
+        orig_len : u32::from_le_bytes(bytes[12..16].try_into().map_err(|_| " Failed to parse original length")?),
+    })
+}
+
 impl PcapGlobalHeader {
     pub fn magic_number(&self) -> u32 {
         self.magic_number
@@ -56,5 +86,20 @@ impl PcapGlobalHeader {
     }
     pub fn linktype(&self) -> u32 {
         self.linktype
+    }
+}
+
+impl PcapPacketHeader {
+    pub fn ts_sec(&self) -> u32 {
+        self.ts_sec
+    }
+    pub fn ts_fractional(&self) -> u32 {
+        self.ts_fractional
+    }
+    pub fn incl_len(&self) -> u32 {
+        self.incl_len
+    }
+    pub fn orig_len(&self) -> u32 {
+        self.orig_len
     }
 }
