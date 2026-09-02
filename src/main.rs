@@ -1,5 +1,5 @@
 use std::fs;
-use dataplane::pcap::{format_mac, parse_ethernet_header, parse_global_header, parse_packet_header};
+use dataplane::pcap::{format_mac, parse_ethernet_header, parse_global_header, parse_ipv4_header, parse_ipv6_header, parse_packet_header};
 
 fn main(){
     let file = "pcap_file.pcap";
@@ -42,10 +42,13 @@ fn main(){
     //Loop for packet parsing
     while current_index + 16 < bytes.len() {
         let header_slice = &bytes[current_index..current_index + 16];
+        let unit = if is_nano { "nanoseconds" } else { "microseconds" };
+
 
         //Extract packet header information
-        let packet_header = match parse_packet_header(header_slice, is_nano, packet_count) {
+        let packet_header = match parse_packet_header(header_slice) {
             Ok(packet_header) => {
+                println!("PACKET NUMBER {}  |  Timestamp: {} seconds, {} {}  |  Included size: {}  |  Original size: {}", packet_count,packet_header.ts_sec(), packet_header.ts_fractional(), unit,packet_header.incl_len(),packet_header.orig_len());
                 packet_header
             }
             Err(e) => {
@@ -67,10 +70,9 @@ fn main(){
         //Extracting ethernet header information
         let ethernet_header = match parse_ethernet_header(payload_data) {
             Ok(ethernet_header) => {
-                println!(" Destination MAC address: {}", format_mac(ethernet_header.dest_mac()));
-                println!(" Source MAC address : {}", format_mac(ethernet_header.src_mac()));
-                println!(" EtherType: 0x{:4X}", ethernet_header.ether_type());
-                println!();
+                println!("  Destination MAC address: {}", format_mac(ethernet_header.dest_mac()));
+                println!("  Source MAC address : {}", format_mac(ethernet_header.src_mac()));
+                println!("  EtherType: 0x{:4X}", ethernet_header.ether_type());
                 ethernet_header
             }
             Err(e) => {
@@ -82,6 +84,58 @@ fn main(){
                 continue;
             }
         };
+
+        if payload_length >14 {
+            let ip_payload = &payload_data[14..];
+            match ethernet_header.ether_type() {
+                //IPv4
+                0x0800 => {
+                    match parse_ipv4_header(ip_payload) {
+                        Ok(ipv4) => {
+                            println!("    Version:         {}", ipv4.version());
+                            println!("    IHL:             {} ({} bytes)", ipv4.ihl(), ipv4.ihl() * 4);
+                            println!("    TOS:             0x{:02X}", ipv4.tos());
+                            println!("    Total Length:    {}", ipv4.total_length());
+                            println!("    Identification:  0x{:04X}", ipv4.identification());
+                            println!("    Flags:           0x{:X}", ipv4.flags());
+                            println!("    Fragment Offset: {}", ipv4.fragment_offset());
+                            println!("    TTL:             {}", ipv4.ttl());
+                            println!("    Protocol:        {}", ipv4.protocol());
+                            println!("    Checksum:        0x{:04X}", ipv4.header_checksum());
+                            println!("    Source IP:       {}", ipv4.src_ip());
+                            println!("    Destination IP:  {}", ipv4.dest_ip());
+                            println!();
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to parse IPv4 header for packet {}: {}", packet_count, e);
+                        }
+                    }
+                }
+                0x86DD =>{
+                    //IPv6
+                    match parse_ipv6_header(ip_payload) {
+                        Ok(ipv6) => {
+                            println!("    Version:         {}", ipv6.version());
+                            println!("    Traffic Class:   0x{:02X}", ipv6.traffic_class());
+                            println!("    Flow Label:      0x{:05X}", ipv6.flow_label());
+                            println!("    Payload Length:  {}", ipv6.payload_length());
+                            println!("    Next Header:     {}", ipv6.next_header());
+                            println!("    Hop Limit:       {}", ipv6.hop_limit());
+                            println!("    Source IP:       {}", ipv6.src_ip());
+                            println!("    Destination IP:  {}", ipv6.dest_ip());
+                            println!();
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to parse IPv6 header for packet {}: {}",packet_count, e);
+                        }
+                    }
+                }
+                //Unknown
+                other => {
+                    println!("    Unknown EtherType: 0x{:04X}, skipping IP parsing.", other);
+                }
+            }
+        }
 
         //Move to the next packet
         current_index += 16 + payload_length;
