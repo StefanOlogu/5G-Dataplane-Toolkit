@@ -1,5 +1,13 @@
 use std::error::Error;
 
+//HEADER TYPES
+#[derive(Debug)]
+pub struct EthernetHeader{
+    dest_mac: [u8; 6],
+    src_mac: [u8; 6],
+    ether_type: u16,
+}
+
 #[derive(Debug)]
 pub struct PcapPacketHeader{
     ts_sec : u32,
@@ -19,6 +27,7 @@ pub struct PcapGlobalHeader{
     linktype: u32,
 }
 
+//PARSING FUNCTIONS FOR EACH TYPE OF HEADER
 pub fn parse_global_header(bytes: &[u8]) -> Result<PcapGlobalHeader, Box<dyn Error>> {
     if bytes.len() < 24 {
         return Err("File is too small to contain a PCAP global header".into());
@@ -52,7 +61,6 @@ pub fn parse_packet_header(bytes: &[u8], is_nano: bool, packet_number : usize) -
     let ts_fractional = u32::from_le_bytes(bytes[4..8].try_into().map_err(|_| "Failed to parse fractional timestamp")?);
     let incl_len = u32::from_le_bytes(bytes[8..12].try_into().map_err(|_| "Failed to parse included length")?);
 
-    // Print it out exactly as you requested
     let unit = if is_nano { "nanoseconds" } else { "microseconds" };
 
     println!("Packet number {}   Timestamp: {} seconds, {} {}       Included size: {}", packet_number,ts_sec, ts_fractional, unit,incl_len);
@@ -65,6 +73,31 @@ pub fn parse_packet_header(bytes: &[u8], is_nano: bool, packet_number : usize) -
     })
 }
 
+pub fn parse_ethernet_header(bytes: &[u8]) -> Result<EthernetHeader, Box<dyn Error>> {
+    if bytes.len() < 14 {
+        return Err("PacketHeader is too small for an Ethernet header".into());
+    }
+
+    let mut dest_mac = [0u8; 6];
+    dest_mac.copy_from_slice(&bytes[0..6]);
+
+    let mut src_mac = [0u8; 6];
+    src_mac.copy_from_slice(&bytes[6..12]);
+
+    let ether_type = u16::from_be_bytes(bytes[12..14].try_into().map_err(|_| "Failed to parse Ethernet type")?);
+
+    Ok(EthernetHeader{
+        dest_mac,
+        src_mac,
+        ether_type,
+    })
+}
+
+pub fn format_mac(mac : &[u8]) -> String {
+    format!("{:02X}:{:02X}:{:02X}:{:02X}:{:02X}:{:02X}", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5])
+}
+
+//GETTERS FOR EACH TYPE OF HEADER
 impl PcapGlobalHeader {
     pub fn magic_number(&self) -> u32 {
         self.magic_number
@@ -101,5 +134,17 @@ impl PcapPacketHeader {
     }
     pub fn orig_len(&self) -> u32 {
         self.orig_len
+    }
+}
+
+impl EthernetHeader {
+    pub fn src_mac(&self) -> &[u8; 6] {
+        &self.src_mac
+    }
+    pub fn ether_type(&self) -> u16 {
+        self.ether_type
+    }
+    pub fn dest_mac(&self) -> &[u8; 6] {
+        &self.dest_mac
     }
 }
