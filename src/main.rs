@@ -1,5 +1,8 @@
 use std::fs;
-use dataplane::pcap::{format_mac, parse_ethernet_header, parse_global_header, parse_ipv4_header, parse_ipv6_header, parse_packet_header};
+use dataplane::ethernet;
+use dataplane::ip;
+use dataplane::pcap;
+use dataplane::transport;
 
 fn main(){
     let file = "pcap_file.pcap";
@@ -14,7 +17,7 @@ fn main(){
     };
 
     //Extracting global header information
-    let global_header = match parse_global_header(&bytes) {
+    let global_header = match pcap::parse_global_header(&bytes) {
         Ok(global_header) => {
             println!("--- PCAP Global Header ---");
             println!("Magic Number:  0x{:08X}", global_header.magic_number());
@@ -31,8 +34,8 @@ fn main(){
         }
     };
 
-    //is_nano is used to check for Little-Endian
-    let is_nano = global_header.magic_number() == 0xa1b23c4d;
+    //check for nanosecond
+    let is_nano = global_header.magic_number() == 0xa1b23c4d || global_header.magic_number() == 0x4d3cb2a1;
     let mut packet_count = 1;
 
     let mut current_index = 24;
@@ -40,13 +43,13 @@ fn main(){
     println!("\nStarting to parse packets:\n");
 
     //Loop for packet parsing
-    while current_index + 16 < bytes.len() {
+    while current_index + 16 <= bytes.len() {
         let header_slice = &bytes[current_index..current_index + 16];
         let unit = if is_nano { "nanoseconds" } else { "microseconds" };
 
 
         //Extract packet header information
-        let packet_header = match parse_packet_header(header_slice) {
+        let packet_header = match pcap::parse_packet_header(header_slice,global_header.big_endian()) {
             Ok(packet_header) => {
                 println!("PACKET NUMBER {}  |  Timestamp: {} seconds, {} {}  |  Included size: {}  |  Original size: {}", packet_count,packet_header.ts_sec(), packet_header.ts_fractional(), unit,packet_header.incl_len(),packet_header.orig_len());
                 packet_header
@@ -59,20 +62,23 @@ fn main(){
 
         let payload_length = packet_header.incl_len() as usize;
 
+        let next_index = current_index + payload_length + 16;
+
         //Check for corrupted packets
-        if current_index + payload_length + 16 > bytes.len() {
+        if next_index > bytes.len() {
             eprintln!("WARNING: Packet {} is truncated. End of file reached prematurely.", packet_count);
+            break;
         }
 
-        let payload_data = &bytes[current_index + 16 ..current_index + 16 + payload_length];
+        let payload_data = &bytes[current_index + 16 ..next_index];
         //TO DO: Analyze extracted payload data
 
         //Extracting ethernet header information
-        let ethernet_header = match parse_ethernet_header(payload_data) {
+        let ethernet_header = match ethernet::parse_ethernet_header(payload_data) {
             Ok(ethernet_header) => {
-                println!("  Destination MAC address: {}", format_mac(ethernet_header.dest_mac()));
-                println!("  Source MAC address : {}", format_mac(ethernet_header.src_mac()));
-                println!("  EtherType: 0x{:4X}", ethernet_header.ether_type());
+                println!("  Destination MAC address: {}", ethernet::format_mac(ethernet_header.dest_mac()));
+                println!("  Source MAC address : {}", ethernet::format_mac(ethernet_header.src_mac()));
+                println!("  EtherType: 0x{:04X}", ethernet_header.ether_type());
                 ethernet_header
             }
             Err(e) => {
@@ -90,7 +96,7 @@ fn main(){
             match ethernet_header.ether_type() {
                 //IPv4
                 0x0800 => {
-                    match parse_ipv4_header(ip_payload) {
+                    match ip::parse_ipv4_header(ip_payload) {
                         Ok(ipv4) => {
                             println!("    Version:         {}", ipv4.version());
                             println!("    IHL:             {} ({} bytes)", ipv4.ihl(), ipv4.ihl() * 4);
@@ -113,7 +119,7 @@ fn main(){
                 }
                 0x86DD =>{
                     //IPv6
-                    match parse_ipv6_header(ip_payload) {
+                    match ip::parse_ipv6_header(ip_payload) {
                         Ok(ipv6) => {
                             println!("    Version:         {}", ipv6.version());
                             println!("    Traffic Class:   0x{:02X}", ipv6.traffic_class());
@@ -135,6 +141,9 @@ fn main(){
                     println!("    Unknown EtherType: 0x{:04X}, skipping IP parsing.", other);
                 }
             }
+        }
+        else{
+            println!();
         }
 
         //Move to the next packet
