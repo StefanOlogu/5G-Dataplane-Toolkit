@@ -6,6 +6,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 pub struct Ipv4Header {
     version: u8,
     ihl: u8,
+    header_length: u8,
     tos: u8,
     total_length: u16,
     identification: u16,
@@ -38,6 +39,14 @@ pub fn parse_ipv4_header(bytes: &[u8]) -> Result<Ipv4Header, Box<dyn Error>> {
     let version_ihl= bytes[0];          //first 4 bits are the version, last 4 bits are the IHL
     let version = version_ihl >> 4;     //extract top 4 bits
     let ihl = version_ihl & 0x0f;       //extract bottom 4 bits
+    if ihl <5{
+        return Err("Ihl too small for an IPv4 header".into());
+    }
+
+    let header_length = ihl * 4;
+    if bytes.len() < header_length as usize {
+        return Err("IPv4 header length exceeds available bytes".into());
+    }
 
     let tos = bytes[1];
     let total_length = u16::from_be_bytes(bytes[2..4].try_into().map_err(|_| "Failed to parse total length")?);
@@ -58,6 +67,7 @@ pub fn parse_ipv4_header(bytes: &[u8]) -> Result<Ipv4Header, Box<dyn Error>> {
     Ok(Ipv4Header{
         version,
         ihl,
+        header_length,
         tos,
         total_length,
         identification,
@@ -113,9 +123,8 @@ impl Ipv4Header {
     pub fn version(&self) -> u8 {
         self.version
     }
-    pub fn ihl(&self) -> u8 {
-        self.ihl
-    }
+    pub fn ihl(&self) -> u8 { self.ihl }
+    pub fn header_length(&self) -> u8 {self.header_length}
     pub fn tos(&self) -> u8 {
         self.tos
     }

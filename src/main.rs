@@ -91,7 +91,7 @@ fn main(){
 
         if payload_length >14 {
             let ip_payload = &payload_data[14..];
-            match ethernet_header.ether_type() {
+            let transport_info = match ethernet_header.ether_type() {
                 //IPv4
                 0x0800 => {
                     match ip::parse_ipv4_header(ip_payload) {
@@ -108,10 +108,17 @@ fn main(){
                             println!("    Checksum:        0x{:04X}", ipv4.header_checksum());
                             println!("    Source IP:       {}", ipv4.src_ip());
                             println!("    Destination IP:  {}", ipv4.dest_ip());
+
+                            //allow options
+                            let start = ipv4.header_length() as usize;
+                            let end = (ipv4.total_length() as usize).min(ip_payload.len());
                             println!();
+                            Some((&ip_payload[start..end], ipv4.protocol()))   // hand back slice + protocol
+
                         }
                         Err(e) => {
                             eprintln!("Failed to parse IPv4 header for packet {}: {}", packet_count, e);
+                            None
                         }
                     }
                 }
@@ -128,17 +135,25 @@ fn main(){
                             println!("    Source IP:       {}", ipv6.src_ip());
                             println!("    Destination IP:  {}", ipv6.dest_ip());
                             println!();
+
+                            let start = 40;
+                            let end = (40 + ipv6.payload_length() as usize).min(ip_payload.len());
+                            Some((&ip_payload[start..end], ipv6.next_header()))
                         }
                         Err(e) => {
                             eprintln!("Failed to parse IPv6 header for packet {}: {}",packet_count, e);
+                            None
                         }
                     }
                 }
                 //Unknown
                 other => {
                     println!("    Unknown EtherType: 0x{:04X}, skipping IP parsing.", other);
+                    None
                 }
-            }
+            };
+
+            //TODO:Transport parsing
         }
         else{
             println!();
