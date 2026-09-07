@@ -1,5 +1,7 @@
 use std::error::Error;
 
+//TODO: SWAP THE LOGIC FOR THE ENDIANESS IN ORDER TO BE HELD IN THE STRUCT RATHER THAN CALCULATED EVERY TIME
+//TODO: REFACTOR IPV4 IN ORDER TO ACCEPT IP OPTIONS
 
 #[derive(Debug)]
 pub struct PcapPacketHeader{
@@ -12,6 +14,7 @@ pub struct PcapPacketHeader{
 #[derive(Debug)]
 pub struct PcapGlobalHeader{
     magic_number: u32,
+    big_endian: bool,
     version_major: u16,
     version_minor: u16,
     thiszone: i32,
@@ -45,6 +48,7 @@ pub fn parse_global_header(bytes: &[u8]) -> Result<PcapGlobalHeader, Box<dyn Err
     if is_valid{
         Ok(PcapGlobalHeader {
             magic_number: magic,
+            big_endian,
             version_major,
             version_minor,
             thiszone,
@@ -112,6 +116,7 @@ impl PcapGlobalHeader {
     pub fn magic_number(&self) -> u32 {
         self.magic_number
     }
+    pub fn big_endian(&self) -> bool { self.big_endian }
     pub fn version_major(&self) -> u16 {
         self.version_major
     }
@@ -131,17 +136,6 @@ impl PcapGlobalHeader {
         self.linktype
     }
 
-    pub fn big_endian(&self) -> bool {
-        let four = self.magic_number;
-        let  big_endian = match four {
-            0xa1b2c3d4 => true,
-            0xd4c3b2a1 => false,
-            0xa1b23c4d => true,
-            0x4d3cb2a1 => false,
-            _ => false,
-        };
-        big_endian
-    }
 }
 
 impl PcapPacketHeader {
