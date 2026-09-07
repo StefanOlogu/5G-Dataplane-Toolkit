@@ -15,6 +15,7 @@ pub struct PcapPacketHeader{
 pub struct PcapGlobalHeader{
     magic_number: u32,
     big_endian: bool,
+    is_nano: bool,
     version_major: u16,
     version_minor: u16,
     thiszone: i32,
@@ -30,12 +31,12 @@ pub fn parse_global_header(bytes: &[u8]) -> Result<PcapGlobalHeader, Box<dyn Err
 
     let four: [u8; 4] = bytes[0..4].try_into()?;
     let magic = u32::from_be_bytes(four);
-    let (is_valid, big_endian) = match magic {
-        0xa1b2c3d4 => (true, true),
-        0xd4c3b2a1 => (true, false),
-        0xa1b23c4d => (true, true),
-        0x4d3cb2a1 => (true, false),
-        _ => (false, false),
+    let (is_valid, big_endian,is_nano) = match magic {
+        0xa1b2c3d4 => (true, true,false),
+        0xd4c3b2a1 => (true, false,false),
+        0xa1b23c4d => (true, true,true),
+        0x4d3cb2a1 => (true, false,true),
+        _ => (false, false,false),
     };
 
     let version_major = read_u16(&bytes[4..6],big_endian)?;
@@ -49,6 +50,7 @@ pub fn parse_global_header(bytes: &[u8]) -> Result<PcapGlobalHeader, Box<dyn Err
         Ok(PcapGlobalHeader {
             magic_number: magic,
             big_endian,
+            is_nano,
             version_major,
             version_minor,
             thiszone,
@@ -117,6 +119,7 @@ impl PcapGlobalHeader {
         self.magic_number
     }
     pub fn big_endian(&self) -> bool { self.big_endian }
+    pub fn is_nano(&self) -> bool { self.is_nano }
     pub fn version_major(&self) -> u16 {
         self.version_major
     }

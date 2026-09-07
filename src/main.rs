@@ -34,8 +34,6 @@ fn main(){
         }
     };
 
-    //check for nanosecond
-    let is_nano = global_header.magic_number() == 0xa1b23c4d || global_header.magic_number() == 0x4d3cb2a1;
     let mut packet_count = 1;
 
     let mut current_index = 24;
@@ -45,7 +43,7 @@ fn main(){
     //Loop for packet parsing
     while current_index + 16 <= bytes.len() {
         let header_slice = &bytes[current_index..current_index + 16];
-        let unit = if is_nano { "nanoseconds" } else { "microseconds" };
+        let unit = if global_header.is_nano() { "nanoseconds" } else { "microseconds" };
 
 
         //Extract packet header information
