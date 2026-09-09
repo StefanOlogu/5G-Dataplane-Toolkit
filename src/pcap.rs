@@ -1,5 +1,4 @@
 use std::error::Error;
-//TODO: REFACTOR IPV4 IN ORDER TO ACCEPT IP OPTIONS
 
 #[derive(Debug)]
 pub struct PcapPacketHeader{
@@ -27,8 +26,7 @@ pub fn parse_global_header(bytes: &[u8]) -> Result<PcapGlobalHeader, Box<dyn Err
         return Err("File is too small to contain a PCAP global header".into());
     }
 
-    let four: [u8; 4] = bytes[0..4].try_into()?;
-    let magic = u32::from_be_bytes(four);
+    let magic = u32::from_be_bytes(bytes[0..4].try_into()?); // read with BE for finding out endianess
     let (is_valid, big_endian,is_nano) = match magic {
         0xa1b2c3d4 => (true, true,false),
         0xd4c3b2a1 => (true, false,false),
@@ -37,6 +35,12 @@ pub fn parse_global_header(bytes: &[u8]) -> Result<PcapGlobalHeader, Box<dyn Err
         _ => (false, false,false),
     };
 
+    if !is_valid {
+        return Err("Invalid PCAP global header".into());
+    }
+
+    let magic = read_u32(&bytes[0..4], big_endian)?; // Read with the correct byte order
+
     let version_major = read_u16(&bytes[4..6],big_endian)?;
     let version_minor = read_u16(&bytes[6..8],big_endian)?;
     let thiszone = read_i32(&bytes[8..12],big_endian)?;
@@ -44,7 +48,6 @@ pub fn parse_global_header(bytes: &[u8]) -> Result<PcapGlobalHeader, Box<dyn Err
     let snaplen = read_u32(&bytes[16..20],big_endian)?;
     let linktype = read_u32(&bytes[20..24],big_endian)?;
 
-    if is_valid{
         Ok(PcapGlobalHeader {
             magic_number: magic,
             big_endian,
@@ -56,11 +59,6 @@ pub fn parse_global_header(bytes: &[u8]) -> Result<PcapGlobalHeader, Box<dyn Err
             snaplen,
             linktype,
         })
-    }
-    else{
-        Err("Failed to parse PCAP global header. Unknown magic_number".into())
-    }
-
 }
 
 pub fn parse_packet_header(bytes: &[u8], big_endian:bool) -> Result<PcapPacketHeader, Box<dyn Error>> {
@@ -151,5 +149,58 @@ impl PcapPacketHeader {
     }
     pub fn orig_len(&self) -> u32 {
         self.orig_len
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_little_endian_global_header() {
+        // Container fields stored LITTLE-endian (least significant byte first).
+        let bytes = [
+            0xD4, 0xC3, 0xB2, 0xA1, // magic (LE on disk) -> 0xA1B2C3D4
+            0x02, 0x00,             // version_major = 2
+            0x04, 0x00,             // version_minor = 4
+            0x00, 0x00, 0x00, 0x00, // thiszone = 0
+            0x00, 0x00, 0x00, 0x00, // sigfigs = 0
+            0xFF, 0xFF, 0x00, 0x00, // snaplen = 65535
+            0x01, 0x00, 0x00, 0x00, // linktype = 1
+        ];
+
+        let hdr = parse_global_header(&bytes).unwrap();
+
+        assert_eq!(hdr.big_endian(), false);
+        assert_eq!(hdr.magic_number(), 0xA1B2C3D4);
+        assert_eq!(hdr.version_major(), 2);
+        assert_eq!(hdr.version_minor(), 4);
+        assert_eq!(hdr.snaplen(), 65535);
+        assert_eq!(hdr.linktype(), 1);
+        assert!(parse_global_header(&[0u8; 24]).is_err())
+    }
+
+    #[test]
+    fn parses_big_endian_global_header() {
+        // SAME logical values, stored BIG-endian (most significant byte first).
+        let bytes = [
+            0xA1, 0xB2, 0xC3, 0xD4, // magic (BE on disk) -> 0xA1B2C3D4
+            0x00, 0x02,             // version_major = 2
+            0x00, 0x04,             // version_minor = 4
+            0x00, 0x00, 0x00, 0x00, // thiszone = 0
+            0x00, 0x00, 0x00, 0x00, // sigfigs = 0
+            0x00, 0x00, 0xFF, 0xFF, // snaplen = 65535
+            0x00, 0x00, 0x00, 0x01, // linktype = 1
+        ];
+
+        let hdr = parse_global_header(&bytes).unwrap();
+
+        assert_eq!(hdr.big_endian(), true);
+        assert_eq!(hdr.magic_number(), 0xA1B2C3D4);
+        assert_eq!(hdr.version_major(), 2);
+        assert_eq!(hdr.version_minor(), 4);
+        assert_eq!(hdr.snaplen(), 65535);
+        assert_eq!(hdr.linktype(), 1);
+        assert!(parse_global_header(&[0u8; 24]).is_err())
     }
 }
