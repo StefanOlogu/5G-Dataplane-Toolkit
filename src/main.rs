@@ -4,6 +4,7 @@ use dataplane::ip;
 use dataplane::pcap;
 use dataplane::transport;
 
+
 fn main(){
     let file = "pcap_file.pcap";
 
@@ -49,7 +50,8 @@ fn main(){
         //Extract packet header information
         let packet_header = match pcap::parse_packet_header(header_slice,global_header.big_endian()) {
             Ok(packet_header) => {
-                println!("PACKET NUMBER {}  |  Timestamp: {} seconds, {} {}  |  Included size: {}  |  Original size: {}", packet_count,packet_header.ts_sec(), packet_header.ts_fractional(), unit,packet_header.incl_len(),packet_header.orig_len());
+                println!("---PACKET NUMBER {}---  \n\n  Timestamp: {} seconds, {} {}  |  Included size: {}  |  Original size: {}", packet_count,packet_header.ts_sec(), packet_header.ts_fractional(), unit,packet_header.incl_len(),packet_header.orig_len());
+                println!();
                 packet_header
             }
             Err(e) => {
@@ -154,6 +156,29 @@ fn main(){
             };
 
             //TODO:Transport parsing
+            if let Some((payload, protocol)) = transport_info {
+                match protocol {
+                    6 => {
+
+                    }
+                    17 => {
+                        match transport::parse_udp_header(payload) {
+                            Ok(udp_header) => {
+                                println!("  UDP Header:");
+                                println!("    Src Port: {}", udp_header.src_port());
+                                println!("    Dst Port: {}", udp_header.dst_port());
+                                println!("    Length: {}", udp_header.length());
+                                println!("    Checksum: {}", udp_header.checksum());
+                                println!();
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to parse UDP header for packet {}: {}", packet_count, e);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
         }
         else{
             println!();
