@@ -1,8 +1,5 @@
 use std::fs;
-use dataplane::ethernet;
-use dataplane::ip;
-use dataplane::pcap;
-use dataplane::transport;
+use dataplane::handlers::{handle_ethernet_header, handle_global_header, handle_ip_header, handle_packet_header, handle_transport};
 
 
 fn main(){
@@ -18,25 +15,12 @@ fn main(){
     };
 
     //Extracting global header information
-    let global_header = match pcap::parse_global_header(&bytes) {
-        Ok(global_header) => {
-            println!("--- PCAP Global Header ---");
-            println!("Magic Number:  0x{:08X}", global_header.magic_number());
-            println!("Version:       {}.{}", global_header.version_major(), global_header.version_minor());
-            println!("Timezone:      {}", global_header.thiszone());
-            println!("SigFigs:       {}", global_header.sigfigs());
-            println!("SnapLen:       {} bytes", global_header.snaplen());
-            println!("LinkType:      {} (Network type)", global_header.linktype());
-            global_header
-        }
-        Err(e) => {
-            eprintln!("Failed to parse PCAP global header: {}", e);
-            return;
-        }
+    let global_header = match handle_global_header(&bytes) {
+        Ok(header) => header,
+        Err(_) => return,
     };
 
     let mut packet_count = 1;
-
     let mut current_index = 24;
 
     println!("\nStarting to parse packets:\n");
@@ -44,24 +28,13 @@ fn main(){
     //Loop for packet parsing
     while current_index + 16 <= bytes.len() {
         let header_slice = &bytes[current_index..current_index + 16];
-        let unit = if global_header.is_nano() { "nanoseconds" } else { "microseconds" };
-
-
         //Extract packet header information
-        let packet_header = match pcap::parse_packet_header(header_slice,global_header.big_endian()) {
-            Ok(packet_header) => {
-                println!("---PACKET NUMBER {}---  \n\n  Timestamp: {} seconds, {} {}  |  Included size: {}  |  Original size: {}", packet_count,packet_header.ts_sec(), packet_header.ts_fractional(), unit,packet_header.incl_len(),packet_header.orig_len());
-                println!();
-                packet_header
-            }
-            Err(e) => {
-                eprintln!("Failed to parse header for packet {}:{}", packet_count, e);
-                break;
-            }
+        let packet_header = match handle_packet_header(header_slice,global_header.big_endian(),global_header.is_nano(),packet_count){
+            Ok(header) => header,
+            Err(_) => break ,
         };
 
         let payload_length = packet_header.incl_len() as usize;
-
         let next_index = current_index + payload_length + 16;
 
         //Check for corrupted packets
@@ -71,129 +44,28 @@ fn main(){
         }
 
         let payload_data = &bytes[current_index + 16 ..next_index];
-        //TO DO: Analyze extracted payload data
 
         //Extracting ethernet header information
-        let ethernet_header = match ethernet::parse_ethernet_header(payload_data) {
-            Ok(ethernet_header) => {
-                println!("  Destination MAC address: {}", ethernet::format_mac(ethernet_header.dest_mac()));
-                println!("  Source MAC address : {}", ethernet::format_mac(ethernet_header.src_mac()));
-                println!("  EtherType: 0x{:04X}", ethernet_header.ether_type());
-                ethernet_header
-            }
-            Err(e) => {
-                eprintln!("Failed to parse Ethernet header for packet number{}: {}",packet_count,e);
-                //Skip to next packet to avoid infinite loop
+        let ethernet_header = match handle_ethernet_header(payload_data) {
+            Ok(header) => header,
+            Err(_) => {
                 current_index += 16 + payload_length;
                 packet_count += 1;
-                println!();
                 continue;
             }
         };
 
         if payload_length >14 {
             let ip_payload = &payload_data[14..];
-            let transport_info = match ethernet_header.ether_type() {
-                //IPv4
-                0x0800 => {
-                    match ip::parse_ipv4_header(ip_payload) {
-                        Ok(ipv4) => {
-                            println!("    Version:         {}", ipv4.version());
-                            println!("    IHL:             {} ({} bytes)", ipv4.ihl(), ipv4.ihl() * 4);
-                            println!("    TOS:             0x{:02X}", ipv4.tos());
-                            println!("    Total Length:    {}", ipv4.total_length());
-                            println!("    Identification:  0x{:04X}", ipv4.identification());
-                            println!("    Flags:           0x{:X}", ipv4.flags());
-                            println!("    Fragment Offset: {}", ipv4.fragment_offset());
-                            println!("    TTL:             {}", ipv4.ttl());
-                            println!("    Protocol:        {}", ipv4.protocol());
-                            println!("    Checksum:        0x{:04X}", ipv4.header_checksum());
-                            println!("    Source IP:       {}", ipv4.src_ip());
-                            println!("    Destination IP:  {}", ipv4.dest_ip());
-
-                            //allow options
-                            let start = ipv4.header_length() as usize;
-                            let end = (ipv4.total_length() as usize).min(ip_payload.len());
-                            println!();
-                            Some((&ip_payload[start..end], ipv4.protocol()))   // hand back slice + protocol
-
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to parse IPv4 header for packet {}: {}", packet_count, e);
-                            None
-                        }
-                    }
+            match handle_ip_header(ip_payload,ethernet_header.ether_type()){
+                Ok(Some((transport_payload,protocol))) => {
+                    handle_transport(transport_payload,protocol);
                 }
-                0x86DD =>{
-                    //IPv6
-                    match ip::parse_ipv6_header(ip_payload) {
-                        Ok(ipv6) => {
-                            println!("    Version:         {}", ipv6.version());
-                            println!("    Traffic Class:   0x{:02X}", ipv6.traffic_class());
-                            println!("    Flow Label:      0x{:05X}", ipv6.flow_label());
-                            println!("    Payload Length:  {}", ipv6.payload_length());
-                            println!("    Next Header:     {}", ipv6.next_header());
-                            println!("    Hop Limit:       {}", ipv6.hop_limit());
-                            println!("    Source IP:       {}", ipv6.src_ip());
-                            println!("    Destination IP:  {}", ipv6.dest_ip());
-                            println!();
+                Ok(None) => {
 
-                            let start = 40;
-                            let end = (40 + ipv6.payload_length() as usize).min(ip_payload.len());
-                            Some((&ip_payload[start..end], ipv6.next_header()))
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to parse IPv6 header for packet {}: {}",packet_count, e);
-                            None
-                        }
-                    }
                 }
-                //Unknown
-                other => {
-                    println!("    Unknown EtherType: 0x{:04X}, skipping IP parsing.", other);
-                    None
-                }
-            };
-
-            if let Some((payload, protocol)) = transport_info {
-                match protocol { //TODO: Create a variable to hold the information for application data
-                    6 => {
-                        match transport::parse_tcp_header(payload) {
-                            Ok(tcp_header) => {
-                                println!("  TCP Header:");
-                                println!("    Src Port: {}", tcp_header.src_port());
-                                println!("    Dest Port: {}", tcp_header.dest_port());
-                                println!("    Sequence Number: {}", tcp_header.sequence_number());
-                                println!("    Acknowledgment Number: {}",tcp_header.ack_number());
-                                println!("    Data Offset: {}", tcp_header.data_offset());
-                                println!("    Reserved: {}", tcp_header.reserved());
-                                println!("    Flags: {}",tcp_header.flags());
-                                println!("    Window Size: {}",tcp_header.window_size());
-                                println!("    Checksum: {}", tcp_header.checksum());
-                                println!("    Urgent Pointer: {}",tcp_header.urgent_pointer());
-                                println!();
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to parse TCP header for packet {}: {}", packet_count, e);
-                            }
-                        }
-                    }
-                    17 => {
-                        match transport::parse_udp_header(payload) {
-                            Ok(udp_header) => {
-                                println!("  UDP Header:");
-                                println!("    Src Port: {}", udp_header.src_port());
-                                println!("    Dest Port: {}", udp_header.dest_port());
-                                println!("    Length: {}", udp_header.length());
-                                println!("    Checksum: {}", udp_header.checksum());
-                                println!();
-                            }
-                            Err(e) => {
-                                eprintln!("Failed to parse UDP header for packet {}: {}", packet_count, e);
-                            }
-                        }
-                    }
-                    _ => {}
+                Err(e) => {
+                    eprintln!("Failed to parse IP header for packet {} : {}", packet_count, e);
                 }
             }
         }
