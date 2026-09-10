@@ -155,18 +155,35 @@ fn main(){
                 }
             };
 
-            //TODO:Transport parsing
             if let Some((payload, protocol)) = transport_info {
-                match protocol {
+                match protocol { //TODO: Create a variable to hold the information for application data
                     6 => {
-
+                        match transport::parse_tcp_header(payload) {
+                            Ok(tcp_header) => {
+                                println!("  TCP Header:");
+                                println!("    Src Port: {}", tcp_header.src_port());
+                                println!("    Dest Port: {}", tcp_header.dest_port());
+                                println!("    Sequence Number: {}", tcp_header.sequence_number());
+                                println!("    Acknowledgment Number: {}",tcp_header.ack_number());
+                                println!("    Data Offset: {}", tcp_header.data_offset());
+                                println!("    Reserved: {}", tcp_header.reserved());
+                                println!("    Flags: {}",tcp_header.flags());
+                                println!("    Window Size: {}",tcp_header.window_size());
+                                println!("    Checksum: {}", tcp_header.checksum());
+                                println!("    Urgent Pointer: {}",tcp_header.urgent_pointer());
+                                println!();
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to parse TCP header for packet {}: {}", packet_count, e);
+                            }
+                        }
                     }
                     17 => {
                         match transport::parse_udp_header(payload) {
                             Ok(udp_header) => {
                                 println!("  UDP Header:");
                                 println!("    Src Port: {}", udp_header.src_port());
-                                println!("    Dst Port: {}", udp_header.dst_port());
+                                println!("    Dest Port: {}", udp_header.dest_port());
                                 println!("    Length: {}", udp_header.length());
                                 println!("    Checksum: {}", udp_header.checksum());
                                 println!();
