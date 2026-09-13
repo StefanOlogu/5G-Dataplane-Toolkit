@@ -1,12 +1,12 @@
 use crate::ethernet::EthernetHeader;
-use crate::pcap::{PcapGlobalHeader, PcapPacketHeader};
-use crate::{ethernet, ip, pcap, transport};
+use crate::container_format::{PcapGlobalHeader, PcapPacketHeader};
+use crate::{ethernet, ip, container_format, transport};
 use std::error::Error;
 
 type TransportInfo<'a> = Option<(&'a [u8], u8)>;
 
 pub fn handle_global_header(bytes: &[u8]) -> Result<PcapGlobalHeader, Box<dyn Error>> {
-    let global_header = pcap::parse_global_header(bytes)?;
+    let global_header = container_format::parse_global_header(bytes)?;
     println!("--- PCAP Global Header ---");
     println!("Magic Number:  0x{:08X}", global_header.magic_number());
     println!(
@@ -32,7 +32,7 @@ pub fn handle_packet_header(
     } else {
         "microseconds"
     };
-    let packet_header = pcap::parse_packet_header(bytes, big_endian)?;
+    let packet_header = container_format::parse_packet_header(bytes, big_endian)?;
     println!(
         "---PACKET NUMBER {}---  \n\n  Timestamp: {} seconds, {} {}  |  Included size: {}  |  Original size: {}",
         packet_count,
