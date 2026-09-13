@@ -23,16 +23,31 @@ pub struct TcpHeader {
     urgent_pointer: u16,
 }
 
-
 pub fn parse_udp_header(bytes: &[u8]) -> Result<UdpHeader, Box<dyn Error>> {
     if bytes.len() < 8 {
         return Err("Payload too small for a UDP header".into());
     }
 
-    let src_port= u16::from_be_bytes(bytes[0..2].try_into().map_err(|_| "Failed to parse source port")?);
-    let dest_port = u16::from_be_bytes(bytes[2..4].try_into().map_err(|_| "Failed to parse destination port")?);
-    let length= u16::from_be_bytes(bytes[4..6].try_into().map_err(|_| "Failed to parse length")?);
-    let checksum= u16::from_be_bytes(bytes[6..8].try_into().map_err(|_| "Failed to parse checksum")?);
+    let src_port = u16::from_be_bytes(
+        bytes[0..2]
+            .try_into()
+            .map_err(|_| "Failed to parse source port")?,
+    );
+    let dest_port = u16::from_be_bytes(
+        bytes[2..4]
+            .try_into()
+            .map_err(|_| "Failed to parse destination port")?,
+    );
+    let length = u16::from_be_bytes(
+        bytes[4..6]
+            .try_into()
+            .map_err(|_| "Failed to parse length")?,
+    );
+    let checksum = u16::from_be_bytes(
+        bytes[6..8]
+            .try_into()
+            .map_err(|_| "Failed to parse checksum")?,
+    );
 
     Ok(UdpHeader {
         src_port,
@@ -47,13 +62,29 @@ pub fn parse_tcp_header(bytes: &[u8]) -> Result<TcpHeader, Box<dyn Error>> {
         return Err("Payload too small for a TCP header".into());
     }
 
-    let src_port= u16::from_be_bytes(bytes[0..2].try_into().map_err(|_| "Failed to parse source port")?);
-    let dest_port = u16::from_be_bytes(bytes[2..4].try_into().map_err(|_| "Failed to parse destination port")?);
-    let sequence_number = u32::from_be_bytes(bytes[4..8].try_into().map_err(|_| "Failed to parse sequence number")?);
-    let ack_number = u32::from_be_bytes(bytes[8..12].try_into().map_err(|_| "Failed to parse ACK number")?);
+    let src_port = u16::from_be_bytes(
+        bytes[0..2]
+            .try_into()
+            .map_err(|_| "Failed to parse source port")?,
+    );
+    let dest_port = u16::from_be_bytes(
+        bytes[2..4]
+            .try_into()
+            .map_err(|_| "Failed to parse destination port")?,
+    );
+    let sequence_number = u32::from_be_bytes(
+        bytes[4..8]
+            .try_into()
+            .map_err(|_| "Failed to parse sequence number")?,
+    );
+    let ack_number = u32::from_be_bytes(
+        bytes[8..12]
+            .try_into()
+            .map_err(|_| "Failed to parse ACK number")?,
+    );
 
-    let offset_reserved= bytes[12];
-    let data_offset = offset_reserved >>4;
+    let offset_reserved = bytes[12];
+    let data_offset = offset_reserved >> 4;
 
     if data_offset < 5 {
         return Err("TCP data offset too small".into());
@@ -68,11 +99,23 @@ pub fn parse_tcp_header(bytes: &[u8]) -> Result<TcpHeader, Box<dyn Error>> {
     let reserved = offset_reserved & 0x0f;
 
     let flags = bytes[13];
-    let window_size = u16::from_be_bytes(bytes[14..16].try_into().map_err(|_| "Failed to parse window size")?);
-    let checksum = u16::from_be_bytes(bytes[16..18].try_into().map_err(|_| "Failed to parse checksum")?);
-    let urgent_pointer = u16::from_be_bytes(bytes[18..20].try_into().map_err(|_| "Failed to parse urgent pointer")?);
+    let window_size = u16::from_be_bytes(
+        bytes[14..16]
+            .try_into()
+            .map_err(|_| "Failed to parse window size")?,
+    );
+    let checksum = u16::from_be_bytes(
+        bytes[16..18]
+            .try_into()
+            .map_err(|_| "Failed to parse checksum")?,
+    );
+    let urgent_pointer = u16::from_be_bytes(
+        bytes[18..20]
+            .try_into()
+            .map_err(|_| "Failed to parse urgent pointer")?,
+    );
 
-    Ok(TcpHeader{
+    Ok(TcpHeader {
         src_port,
         dest_port,
         sequence_number,
@@ -170,15 +213,15 @@ mod tests {
     #[test]
     fn parses_tcp_header() {
         let bytes = [
-            0xB3, 0x6B,             // src_port = 45931
-            0x01, 0xBB,             // dest_port = 443
+            0xB3, 0x6B, // src_port = 45931
+            0x01, 0xBB, // dest_port = 443
             0x12, 0x34, 0x56, 0x78, // sequence_number = 0x12345678 = 305419896
             0x00, 0x00, 0x00, 0x01, // ack_number = 1
-            0x50,                   // data_offset = 5 , reserved = 0
-            0x02,                   // flags = 0x02 (SYN)
-            0xFF, 0xFF,             // window_size = 65535
-            0x1A, 0x2B,             // checksum = 0x1A2B = 6699
-            0x00, 0x00,             // urgent_pointer = 0
+            0x50, // data_offset = 5 , reserved = 0
+            0x02, // flags = 0x02 (SYN)
+            0xFF, 0xFF, // window_size = 65535
+            0x1A, 0x2B, // checksum = 0x1A2B = 6699
+            0x00, 0x00, // urgent_pointer = 0
         ];
 
         let tcp = parse_tcp_header(&bytes).unwrap();
@@ -203,17 +246,17 @@ mod tests {
     }
 
     #[test]
-    fn rejects_tcp_bad_data_offset(){
+    fn rejects_tcp_bad_data_offset() {
         let bytes = [
-            0xB3, 0x6B,             // src_port = 45931
-            0x01, 0xBB,             // dest_port = 443
+            0xB3, 0x6B, // src_port = 45931
+            0x01, 0xBB, // dest_port = 443
             0x12, 0x34, 0x56, 0x78, // sequence_number = 0x12345678 = 305419896
             0x00, 0x00, 0x00, 0x01, // ack_number = 1
-            0x40,                   // data_offset = 4, should activate guard for data offset too small
-            0x02,                   // flags = 0x02 (SYN)
-            0xFF, 0xFF,             // window_size = 65535
-            0x1A, 0x2B,             // checksum = 0x1A2B = 6699
-            0x00, 0x00,             // urgent_pointer = 0
+            0x40, // data_offset = 4, should activate guard for data offset too small
+            0x02, // flags = 0x02 (SYN)
+            0xFF, 0xFF, // window_size = 65535
+            0x1A, 0x2B, // checksum = 0x1A2B = 6699
+            0x00, 0x00, // urgent_pointer = 0
         ];
 
         assert!(parse_tcp_header(&bytes).is_err());

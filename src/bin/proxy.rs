@@ -1,15 +1,15 @@
 use tokio::net::{TcpListener, TcpStream};
 use tokio::select;
-use tracing::{info, error, warn};
 use tokio::signal::ctrl_c;
+use tracing::{error, info, warn};
 
 #[tokio::main]
-async fn main()-> std::io::Result<()> {
+async fn main() -> std::io::Result<()> {
     tracing_subscriber::fmt::init();
     let listener = TcpListener::bind("127.0.0.1:6060").await?;
     info!("Proxy listening on 127.0.0.1:6060");
 
-    loop{
+    loop {
         select! {
             result = listener.accept() => {
                 let (mut stream, addr) = match result{
@@ -35,7 +35,6 @@ async fn main()-> std::io::Result<()> {
                         }
                         Err(e)=>{
                             warn!("Connection {:?} error: {e}",addr);
-                            return;
                         }
                     };
 
