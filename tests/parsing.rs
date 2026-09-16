@@ -1,6 +1,6 @@
+use dataplane::container_format::{parse_global_header, parse_packet_header};
 use dataplane::ethernet::parse_ethernet_header;
 use dataplane::ip::parse_ipv4_header;
-use dataplane::container_format::{parse_global_header, parse_packet_header};
 use dataplane::transport::parse_udp_header;
 use std::net::Ipv4Addr;
 

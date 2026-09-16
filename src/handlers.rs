@@ -1,6 +1,6 @@
-use crate::ethernet::EthernetHeader;
 use crate::container_format::{PcapGlobalHeader, PcapPacketHeader};
-use crate::{ethernet, ip, container_format, transport};
+use crate::ethernet::EthernetHeader;
+use crate::{container_format, ethernet, ip, transport};
 use std::error::Error;
 
 type TransportInfo<'a> = Option<(&'a [u8], u8)>;
