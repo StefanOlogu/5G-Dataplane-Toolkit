@@ -1,5 +1,4 @@
 use std::error::Error;
-//TODO:read_name pointer safety tests
 //HEX STREAM USED:dbac81a00001000200000001076578616d706c6503636f6d0000010001c00c00010001000000510004ac4293f3c00c000100010000005100046814179a00002904d0000000000000
 
 #[derive(Debug)]
@@ -69,7 +68,7 @@ pub fn read_name(msg: &[u8], offset: usize) -> Result<(Vec<u8>, usize), Box<dyn 
         }
         if b & 0xC0 == 0xC0 {
             if current_pos >=ptr_barrier {
-                Err("infinite loop detected")?;
+                return Err("pointer cycle detected".into());
             }
             else{ ptr_barrier = current_pos;}
 
@@ -222,5 +221,29 @@ mod tests {
             ]
         );
         assert_eq!(resume, 31);
+    }
+
+    #[test]
+    fn rejects_self_referential_pointer() {
+        let msg = [0xC0, 0x00];
+        assert!(read_name(&msg, 0).is_err());
+    }
+
+    #[test]
+    fn rejects_offset_past_buffer(){
+        let msg = [0x01,0x3F, 0xC0, 0x07];
+
+        assert!(read_name(&msg, 0).is_err());
+    }
+
+    #[test]
+    fn rejects_label_past_length(){
+        let msg = [0x12, 0xFF];
+        assert!(read_name(&msg, 0).is_err());
+    }
+    #[test]
+    fn rejects_pointer_cycle(){
+        let msg = [0x01,0x41,0x01,0x42,0xc0,0x02];
+        assert!(read_name(&msg, 0).is_err());
     }
 }
