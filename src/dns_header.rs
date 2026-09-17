@@ -18,11 +18,19 @@ pub struct DnsHeader {
     arcount: u16,
 }
 
-#[derive(Debug)]
-pub struct QuestionHeader{
+pub struct QuestionFormat {
     qname:Vec<u8>,
     qtype:u16,
     qclass: u16,
+}
+
+pub struct RecordFormat {
+    name:Vec<u8>,
+    record_type:u16,
+    class: u16,
+    ttl: u32,
+    rdlength: u16,
+    rdata: Vec<u8>,
 }
 
 pub fn parse_dns_header(bytes: &[u8]) -> Result<DnsHeader, Box<dyn Error>> {
@@ -104,14 +112,37 @@ pub fn read_name(msg: &[u8], offset: usize) -> Result<(Vec<u8>, usize), Box<dyn 
     Ok((name, resume.unwrap_or(current_pos + 1)))
 }
 
-pub fn parse_question_header(bytes: &[u8], offset: usize) -> Result<(QuestionHeader, usize), Box<dyn Error>> {
-    let (qname,resume) = read_name(&bytes, offset)?;
+pub fn parse_question(bytes: &[u8], offset: usize) -> Result<(QuestionFormat, usize), Box<dyn Error>> {
+    let (qname,resume) = read_name(bytes, offset)?;
     let qtype_slice = bytes.get(resume..resume+2).ok_or("question type is missing bytes")?;
     let qtype = u16::from_be_bytes(qtype_slice.try_into()?);
     let qclass_slice = bytes.get(resume+2..resume+4).ok_or("question class is missing bytes")?;
     let qclass = u16::from_be_bytes(qclass_slice.try_into()?);
 
-    Ok((QuestionHeader{qname, qtype, qclass}, resume + 4))
+    Ok((QuestionFormat {qname, qtype, qclass}, resume + 4))
+}
+
+pub fn parse_record(bytes : &[u8], offset:usize) -> Result<(RecordFormat, usize), Box<dyn Error>> {
+    let (name,resume_from_name) = read_name(bytes, offset)?;
+    let type_slice = bytes.get(resume_from_name..resume_from_name+2).ok_or("type is missing bytes")?;
+    let record_type = u16::from_be_bytes(type_slice.try_into()?);
+    let class_slice = bytes.get(resume_from_name+2..resume_from_name+4).ok_or("class is missing bytes")?;
+    let class = u16::from_be_bytes(class_slice.try_into()?);
+    let ttl_slice = bytes.get(resume_from_name+4..resume_from_name+8).ok_or("ttl is missing bytes")?;
+    let ttl = u32::from_be_bytes(ttl_slice.try_into()?);
+    let rdlength_slice = bytes.get(resume_from_name+8..resume_from_name+10).ok_or("rdlength is missing bytes")?;
+    let rdlength = u16::from_be_bytes(rdlength_slice.try_into()?);
+    let rdata_slice = bytes.get(resume_from_name+10..resume_from_name+ 10 +rdlength as usize).ok_or("rdata is missing bytes")?;
+    let rdata = rdata_slice.to_vec();
+
+    Ok((RecordFormat{
+        name,
+        record_type,
+        class,
+        ttl,
+        rdlength,
+        rdata
+    },resume_from_name +10 + rdlength as usize))
 }
 
 impl DnsHeader {
@@ -156,6 +187,39 @@ impl DnsHeader {
     }
 }
 
+impl QuestionFormat {
+    pub fn qname(&self) -> &Vec<u8> {
+        &self.qname
+    }
+    pub fn qtype(&self) -> u16 {
+        self.qtype
+    }
+    pub fn qclass(&self) -> u16 {
+        self.qclass
+    }
+}
+
+impl RecordFormat {
+    pub fn name(&self) -> &Vec<u8> {
+        &self.name
+    }
+    pub fn record_type(&self) -> u16 {
+        self.record_type
+    }
+    pub fn class(&self) -> u16 {
+        self.class
+    }
+    pub fn ttl(&self) -> u32 {
+        self.ttl
+    }
+    pub fn rdlength(&self) -> u16 {
+        self.rdlength
+    }
+    pub fn rdata(&self) -> &Vec<u8> {
+        &self.rdata
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,9 +246,26 @@ mod tests {
     }
 
     #[test]
+    fn parse_two_answer_records() {
+        let msg = sample_dns_header();
+
+        let (rr1, r1) = parse_record(&msg, 29).unwrap();
+        assert_eq!(rr1.name, b"example.com");        // via the c0 0c pointer
+        assert_eq!(rr1.record_type, 1);              // A
+        assert_eq!(rr1.class, 1);                     // IN
+        assert_eq!(rr1.rdlength, 4);
+        assert_eq!(rr1.rdata, [0xac, 0x42, 0x93, 0xf3]);
+        assert_eq!(r1, 45);
+
+        let (rr2, r2) = parse_record(&msg, r1).unwrap();   // feed r1 back in
+        assert_eq!(rr2.rdata, [0x68, 0x14, 0x17, 0x9a]);
+        assert_eq!(r2, 61);
+    }
+
+    #[test]
     fn parse_first_question() {
         let msg = sample_dns_header();
-        let (q, resume) = parse_question_header(&msg, 12).unwrap();
+        let (q, resume) = parse_question(&msg, 12).unwrap();
         assert_eq!(q.qname, b"example.com");
         assert_eq!(q.qtype, 1);   // A
         assert_eq!(q.qclass, 1);  // IN
