@@ -1,5 +1,5 @@
 use std::error::Error;
-
+//TODO:read_name pointer safety tests
 //HEX STREAM USED:dbac81a00001000200000001076578616d706c6503636f6d0000010001c00c00010001000000510004ac4293f3c00c000100010000005100046814179a00002904d0000000000000
 
 #[derive(Debug)]
@@ -56,6 +56,48 @@ pub fn parse_dns_header(bytes: &[u8]) -> Result<DnsHeader, Box<dyn Error>> {
     })
 }
 
+pub fn read_name(msg: &[u8], offset: usize) -> Result<(Vec<u8>, usize), Box<dyn Error>> {
+    let mut name = vec![];
+    let mut current_pos = offset;
+    let mut resume: Option<usize> = None;
+    let mut ptr_barrier = usize::MAX;
+
+    loop {
+        let b = *msg.get(current_pos).ok_or("name runs past end of message")?;
+        if b == 0x00 {
+            break;
+        }
+        if b & 0xC0 == 0xC0 {
+            if current_pos >=ptr_barrier {
+                Err("infinite loop detected")?;
+            }
+            else{ ptr_barrier = current_pos;}
+
+            if resume.is_none() {
+                resume = Some(current_pos + 2);
+            }
+
+            let b2 = *msg.get(current_pos + 1).ok_or("pointer truncated")? as u16;
+            current_pos = (((b as u16) << 8 | b2) & 0x3FFF) as usize;
+
+        } else {
+            let length = b as usize;
+            let start = current_pos + 1;
+            let end = start + length;
+            let label = msg.get(start..end).ok_or("label runs past end of message")?;
+
+            if !name.is_empty() {
+                name.push(b'.');
+            }
+
+            name.extend_from_slice(label);
+            current_pos = end;
+        }
+    }
+
+    Ok((name, resume.unwrap_or(current_pos + 1)))
+}
+
 impl DnsHeader {
     pub fn id(&self) -> u16 {
         self.id
@@ -102,6 +144,27 @@ impl DnsHeader {
 mod tests {
     use super::*;
 
+    fn sample_dns_header() -> [u8; 72] {
+        let bytes: [u8; 72] = [
+            //DNS Header
+            0xdb, 0xac, 0x81, 0xa0, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00, 0x01,
+            //Question Section
+            0x07, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, // Length 7: "example"
+            0x03, 0x63, 0x6f, 0x6d, // Length 3: "com"
+            0x00, // Null terminator for the name
+
+            //QTYPE and QCLASS
+            0x00, 0x01, 0x00, 0x01,
+            //Answer Section
+            0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x51, 0x00, 0x04, 0xac, 0x42,
+            0x93, 0xf3, 0xc0, 0x0c, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x51, 0x00, 0x04,
+            0x68, 0x14, 0x17, 0x9a,
+            //Additional Section
+            0x00, 0x00, 0x29, 0x04, 0xd0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        ];
+        bytes
+    }
+
     #[test]
     fn parse_one_dns_header() {
         let bytes = [
@@ -129,5 +192,35 @@ mod tests {
     fn rejects_short_header() {
         let bytes = [0u8; 11];
         assert!(parse_dns_header(&bytes).is_err());
+    }
+
+    #[test]
+    fn parse_question_name_no_pointer() {
+        let bytes = sample_dns_header();
+
+        let (name, resume) = read_name(&bytes, 12).unwrap();
+
+        assert_eq!(
+            name,
+            [
+                0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x2e, 0x63, 0x6f, 0x6d
+            ]
+        );
+        assert_eq!(resume, 25);
+    }
+
+    #[test]
+    fn parse_question_name_with_pointer() {
+        let bytes = sample_dns_header();
+
+        let (name, resume) = read_name(&bytes, 29).unwrap();
+
+        assert_eq!(
+            name,
+            [
+                0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x2e, 0x63, 0x6f, 0x6d
+            ]
+        );
+        assert_eq!(resume, 31);
     }
 }
