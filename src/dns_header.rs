@@ -18,6 +18,13 @@ pub struct DnsHeader {
     arcount: u16,
 }
 
+#[derive(Debug)]
+pub struct QuestionHeader{
+    qname:Vec<u8>,
+    qtype:u16,
+    qclass: u16,
+}
+
 pub fn parse_dns_header(bytes: &[u8]) -> Result<DnsHeader, Box<dyn Error>> {
     if bytes.len() < 12 {
         return Err("dns header too short".into());
@@ -97,6 +104,16 @@ pub fn read_name(msg: &[u8], offset: usize) -> Result<(Vec<u8>, usize), Box<dyn 
     Ok((name, resume.unwrap_or(current_pos + 1)))
 }
 
+pub fn parse_question_header(bytes: &[u8], offset: usize) -> Result<(QuestionHeader, usize), Box<dyn Error>> {
+    let (qname,resume) = read_name(&bytes, offset)?;
+    let qtype_slice = bytes.get(resume..resume+2).ok_or("question type is missing bytes")?;
+    let qtype = u16::from_be_bytes(qtype_slice.try_into()?);
+    let qclass_slice = bytes.get(resume+2..resume+4).ok_or("question class is missing bytes")?;
+    let qclass = u16::from_be_bytes(qclass_slice.try_into()?);
+
+    Ok((QuestionHeader{qname, qtype, qclass}, resume + 4))
+}
+
 impl DnsHeader {
     pub fn id(&self) -> u16 {
         self.id
@@ -162,6 +179,16 @@ mod tests {
             0x00, 0x00, 0x29, 0x04, 0xd0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         ];
         bytes
+    }
+
+    #[test]
+    fn parse_first_question() {
+        let msg = sample_dns_header();
+        let (q, resume) = parse_question_header(&msg, 12).unwrap();
+        assert_eq!(q.qname, b"example.com");
+        assert_eq!(q.qtype, 1);   // A
+        assert_eq!(q.qclass, 1);  // IN
+        assert_eq!(resume, 29);   // first answer RR begins here
     }
 
     #[test]
