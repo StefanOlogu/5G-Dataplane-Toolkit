@@ -1,6 +1,6 @@
 use std::error::Error;
 //HEX STREAM USED:dbac81a00001000200000001076578616d706c6503636f6d0000010001c00c00010001000000510004ac4293f3c00c000100010000005100046814179a00002904d0000000000000
-
+//TODO: branch out in submodules the header and the other layers, leave mod.rs with declarations of these files only
 #[derive(Debug)]
 pub struct DnsHeader {
     id: u16,
@@ -39,6 +39,18 @@ pub struct RecordFormat {
     ttl: u32,
     rdlength: u16,
     rdata: Vec<u8>,
+}
+
+//helper for parsing
+fn be_u16(msg: &[u8], at: usize) -> Result<u16, Box<dyn Error>> {
+    let slice = msg.get(at..at + 2).ok_or("slice runs past end of message")?;
+    Ok(u16::from_be_bytes(slice.try_into()?))
+}
+
+//helper for parsing
+fn be_u32(msg: &[u8], at: usize) -> Result<u32, Box<dyn Error>> {
+    let slice = msg.get(at..at + 4).ok_or("slice runs past end of message")?;
+    Ok(u32::from_be_bytes(slice.try_into()?))
 }
 
 pub fn parse_dns_header(bytes: &[u8]) -> Result<DnsHeader, Box<dyn Error>> {
@@ -122,24 +134,18 @@ pub fn read_name(msg: &[u8], offset: usize) -> Result<(Vec<u8>, usize), Box<dyn 
 
 pub fn parse_question(bytes: &[u8], offset: usize) -> Result<(QuestionFormat, usize), Box<dyn Error>> {
     let (qname,resume) = read_name(bytes, offset)?;
-    let qtype_slice = bytes.get(resume..resume+2).ok_or("question type is missing bytes")?;
-    let qtype = u16::from_be_bytes(qtype_slice.try_into()?);
-    let qclass_slice = bytes.get(resume+2..resume+4).ok_or("question class is missing bytes")?;
-    let qclass = u16::from_be_bytes(qclass_slice.try_into()?);
+    let qtype = be_u16(bytes, resume)?;
+    let qclass = be_u16(bytes,resume +2)?;
 
     Ok((QuestionFormat {qname, qtype, qclass}, resume + 4))
 }
 
 pub fn parse_record(bytes : &[u8], offset:usize) -> Result<(RecordFormat, usize), Box<dyn Error>> {
     let (name,resume_from_name) = read_name(bytes, offset)?;
-    let type_slice = bytes.get(resume_from_name..resume_from_name+2).ok_or("type is missing bytes")?;
-    let record_type = u16::from_be_bytes(type_slice.try_into()?);
-    let class_slice = bytes.get(resume_from_name+2..resume_from_name+4).ok_or("class is missing bytes")?;
-    let class = u16::from_be_bytes(class_slice.try_into()?);
-    let ttl_slice = bytes.get(resume_from_name+4..resume_from_name+8).ok_or("ttl is missing bytes")?;
-    let ttl = u32::from_be_bytes(ttl_slice.try_into()?);
-    let rdlength_slice = bytes.get(resume_from_name+8..resume_from_name+10).ok_or("rdlength is missing bytes")?;
-    let rdlength = u16::from_be_bytes(rdlength_slice.try_into()?);
+    let record_type = be_u16(bytes,resume_from_name)?;
+    let class = be_u16(bytes,resume_from_name +2)?;
+    let ttl = be_u32(bytes,resume_from_name +4)?;
+    let rdlength = be_u16(bytes,resume_from_name +8)?;
     let rdata_slice = bytes.get(resume_from_name+10..resume_from_name+ 10 +rdlength as usize).ok_or("rdata is missing bytes")?;
     let rdata = rdata_slice.to_vec();
 
