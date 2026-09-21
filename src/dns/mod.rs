@@ -2,11 +2,13 @@ mod header;
 mod question;
 mod resource_record;
 mod full_message;
+mod build;
 
-pub use full_message::{DnsMessage,parse_message};
+pub use full_message::{DnsMessage, parse_message};
 pub use header::{DnsHeader};
 pub use question::{QuestionFormat};
 pub use resource_record::RecordFormat;
+pub use build::build_query;
 
 use std::error::Error;
 
@@ -90,7 +92,6 @@ mod test_support {
         ];
         bytes
     }
-
 
     #[test]
     fn rejects_self_referential_pointer() {
