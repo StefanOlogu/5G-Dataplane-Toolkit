@@ -17,7 +17,7 @@ pub fn build_query(domain: &str, qtype:u16) -> Result<Vec<u8>, Box<dyn Error>> {
         }
         let len = label.len();
         resulted_bytes.push(len as u8);
-        resulted_bytes.extend_from_slice(&label.as_bytes());
+        resulted_bytes.extend_from_slice(label.as_bytes());
 
     }
 
