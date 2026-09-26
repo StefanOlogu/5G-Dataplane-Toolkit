@@ -12,18 +12,6 @@ pub use build::build_query;
 
 use std::error::Error;
 
-//helper for parsing
-fn be_u16(msg: &[u8], at: usize) -> Result<u16, Box<dyn Error>> {
-    let slice = msg.get(at..at + 2).ok_or("slice runs past end of message")?;
-    Ok(u16::from_be_bytes(slice.try_into()?))
-}
-
-//helper for parsing
-fn be_u32(msg: &[u8], at: usize) -> Result<u32, Box<dyn Error>> {
-    let slice = msg.get(at..at + 4).ok_or("slice runs past end of message")?;
-    Ok(u32::from_be_bytes(slice.try_into()?))
-}
-
 //helper for reading QNAME and NAME
 pub fn read_name(msg: &[u8], offset: usize) -> Result<(Vec<u8>, usize), Box<dyn Error>> {
     let mut name = vec![];
