@@ -1,4 +1,3 @@
-
 use std::error::Error;
 use crate::wire::{be_u16, be_u32, be_u8};
 
@@ -6,15 +5,25 @@ pub struct GtpHeader {
     e:bool,
     s:bool,
     pn:bool,
-    message_type:u8,
+    message_type: MessageType,
     length:u16,
     teid:u32,
     seq_num:Option<u16>,
     npdu_num:Option<u8>,
     next_extension_header_type:Option<u8>,
 }
+#[derive(Debug, Clone, Copy,PartialEq)]
+pub enum MessageType {
+    Request,
+    Response,
+    ErrorIndication,
+    HeaderExtension,
+    EndMarker,
+    GPdu,
+    Unknown(u8),
+}
 
-pub fn parse_gtpu_header(bytes:&[u8]) ->Result<(GtpHeader,usize), Box<dyn Error>> {
+pub fn parse_gtpu_header(bytes:&[u8]) ->Result<(GtpHeader, usize), Box<dyn Error>> {
 
     let first_byte = be_u8(bytes,0)?;
     let version = (first_byte & 0xE0) >> 5;
@@ -36,7 +45,9 @@ pub fn parse_gtpu_header(bytes:&[u8]) ->Result<(GtpHeader,usize), Box<dyn Error>
     let s = (first_byte & 0x02) !=0;
     let pn = (first_byte & 0x01) !=0;
 
-    let message_type = be_u8(bytes, 1)?;
+    let message_type = MessageType::from(be_u8(bytes, 1)?);
+
+
     let length =be_u16(bytes,2).map_err(|e| format!("GTP-U Length: {e}"))?;
     let teid = be_u32(bytes,4).map_err(|e| format!("GTP-U Teid: {e}"))?;
 
@@ -86,7 +97,7 @@ impl GtpHeader {
     pub fn pn(&self) -> bool {
         self.pn
     }
-    pub fn message_type(&self) -> u8 {
+    pub fn message_type(&self) -> MessageType {
         self.message_type
     }
     pub fn length(&self) -> u16 {
@@ -106,6 +117,20 @@ impl GtpHeader {
     }
 }
 
+impl From<u8> for MessageType {
+    fn from(n:u8) -> Self {
+        match n {
+            1 => MessageType::Request,
+            2 => MessageType::Response,
+            26 => MessageType::ErrorIndication,
+            31 => MessageType::HeaderExtension,
+            254 => MessageType::EndMarker,
+            255 => MessageType::GPdu,
+            other => MessageType::Unknown(other),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::gtp::tests::{gptu_flag_sample, gptu_no_flag_sample};
@@ -117,7 +142,7 @@ mod tests {
         let (header,offset) = parse_gtpu_header(&bytes).unwrap();
         assert_eq!(header.teid(),287454020);
         assert_eq!(header.length(),4);
-        assert_eq!(header.message_type(),255);
+        assert_eq!(header.message_type(), MessageType::GPdu);
         assert!(!header.e());
         assert!(!header.pn());
         assert!(!header.s());
