@@ -105,3 +105,41 @@ impl GtpHeader {
         self.next_extension_header_type
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::gtp::tests::{gptu_flag_sample, gptu_no_flag_sample};
+    use super::*;
+
+    #[test]
+    fn gtpu_happy_path() {
+        let bytes = gptu_no_flag_sample();
+        let (header,offset) = parse_gtpu_header(&bytes).unwrap();
+        assert_eq!(header.teid(),287454020);
+        assert_eq!(header.length(),4);
+        assert_eq!(header.message_type(),255);
+        assert!(!header.e());
+        assert!(!header.pn());
+        assert!(!header.s());
+        assert_eq!(offset,8);
+
+        let bytes = gptu_flag_sample();
+        let (header, offset) = parse_gtpu_header(&bytes).unwrap();
+        assert_eq!(header.seq_num(), Some(7));
+        assert_eq!(header.npdu_num(), None);
+        assert_eq!(header.next_extension_header_type(), None);
+        assert_eq!(offset, 12);
+    }
+
+    #[test]
+    fn gtpu_truncated(){
+        let full = gptu_no_flag_sample();
+        assert!(parse_gtpu_header(&full[..6]).is_err());
+    }
+
+    #[test]
+    fn gtpu_e_flag_rejection(){
+        let bytes = [0x36, 0xFF, 0x00, 0x06, 0x11, 0x22, 0x33, 0x44, 0x00, 0x07, 0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
+        assert!(parse_gtpu_header(&bytes).is_err());
+    }
+}
