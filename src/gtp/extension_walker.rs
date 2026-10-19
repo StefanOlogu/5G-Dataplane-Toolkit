@@ -1,0 +1,42 @@
+use std::error::Error;
+
+pub fn extension_walker(bytes: &[u8]) -> Result<usize, Box<dyn Error>> {
+    let mut offset = 11;
+    while *bytes.get(offset).ok_or("GTP-U ext header: ran off buffer")? != 0 {
+        let len = *bytes.get(offset + 1).ok_or("GTP-U ext header: truncated length")? as usize;
+        if len == 0 {
+            return Err(From::from("GTP-U ext header: zero length"));
+        }
+        offset += len * 4;
+    }
+    Ok(offset + 1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn accepts_gtpu_one_extension() {
+        let bytes = [0x34, 0xFF, 0x00, 0x08, 0x11, 0x22, 0x33, 0x44, 0x00, 0x00, 0x00, 0x85, 0x01, 0xAB, 0xCD, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
+        assert_eq!(extension_walker(&bytes).unwrap(), 16);
+    }
+
+    #[test]
+    fn accepts_gtpu_multiple_extensions() {
+        let bytes = [0x34, 0xFF, 0x00, 0x0C, 0x11, 0x22, 0x33, 0x44, 0x00, 0x00, 0x00, 0x85, 0x01, 0xAB, 0xCD, 0x85, 0x01, 0xEE, 0xFF, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
+        assert_eq!(extension_walker(&bytes).unwrap(), 20);
+    }
+
+    #[test]
+    fn rejects_gtpu_truncated_extension_chain(){
+        let bytes = [0x34, 0xFF, 0x00, 0x08, 0x11, 0x22, 0x33, 0x44, 0x00, 0x00, 0x00, 0x85, 0x01, 0xAB, 0xCD];
+        assert!(extension_walker(&bytes).is_err());
+    }
+
+    #[test]
+    fn rejects_gtpu_zero_length_extension(){
+        let bytes = [0x34, 0xFF, 0x00, 0x08, 0x11, 0x22, 0x33, 0x44, 0x00, 0x00, 0x00, 0x85, 0x00, 0xAB, 0xCD, 0x00, 0xDE, 0xAD];
+        assert!(extension_walker(&bytes).is_err());
+    }
+}

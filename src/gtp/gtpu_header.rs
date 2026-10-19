@@ -1,4 +1,5 @@
 use std::error::Error;
+use crate::gtp::extension_walker::extension_walker;
 use crate::wire::{be_u16, be_u32, be_u8};
 
 pub struct GtpHeader {
@@ -38,13 +39,16 @@ pub fn parse_gtpu_header(bytes:&[u8]) ->Result<(GtpHeader, usize), Box<dyn Error
     }
 
     let e = (first_byte & 0x04)!=0;
-
-    if e{
-        return Err(From::from("Dont cover extensions for now"));
-    }
-
     let s = (first_byte & 0x02) !=0;
     let pn = (first_byte & 0x01) !=0;
+
+    let offset = if e {
+        extension_walker(bytes)?
+    } else if s || pn {
+        12
+    } else {
+        8
+    };
 
     let message_type = MessageType::from(be_u8(bytes, 1)?);
 
@@ -86,7 +90,7 @@ pub fn parse_gtpu_header(bytes:&[u8]) ->Result<(GtpHeader, usize), Box<dyn Error
         seq_num,
         npdu_num,
         next_extension_header_type
-    }, offset as usize))
+    }, offset))
 }
 
 
@@ -166,11 +170,5 @@ mod tests {
     fn gtpu_truncated(){
         let full = gptu_no_flag_sample();
         assert!(parse_gtpu_header(&full[..6]).is_err());
-    }
-
-    #[test]
-    fn gtpu_e_flag_rejection(){
-        let bytes = [0x36, 0xFF, 0x00, 0x06, 0x11, 0x22, 0x33, 0x44, 0x00, 0x07, 0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
-        assert!(parse_gtpu_header(&bytes).is_err());
     }
 }
