@@ -2,6 +2,7 @@ use std::error::Error;
 use crate::wire::{be_u16, be_u32, be_u8};
 
 pub struct GtpHeader {
+    offset:usize,
     e:bool,
     s:bool,
     pn:bool,
@@ -68,13 +69,14 @@ pub fn parse_gtpu_header(bytes:&[u8]) ->Result<(GtpHeader, usize), Box<dyn Error
 
             next_extension_header_type = Some(be_u8(bytes,11)?);
         }
-        (seq_num,npdu_num,next_extension_header_type, 12usize)
+        (seq_num,npdu_num,next_extension_header_type, 12)
     }
     else{
-        (None,None,None, 8usize)
+        (None,None,None, 8)
     };
 
     Ok((GtpHeader{
+        offset,
         e,
         s,
         pn,
@@ -84,10 +86,26 @@ pub fn parse_gtpu_header(bytes:&[u8]) ->Result<(GtpHeader, usize), Box<dyn Error
         seq_num,
         npdu_num,
         next_extension_header_type
-    }, offset))
+    }, offset as usize))
+}
+
+pub fn dispatch_gtpu<'a>(header: &GtpHeader, bytes: &'a [u8]) -> Result<Option<&'a [u8]>, Box<dyn Error>>{
+    match header.message_type() {
+        MessageType::GPdu => {
+            let start = header.offset();
+            let end = 8 + header.length() as usize;
+            let tpdu = bytes.get(start..end).ok_or("GTP-U T-PDU: length exceeds buffer")?;
+            Ok(Some(tpdu))
+        }
+        _ => Ok(None),
+    }
+
 }
 
 impl GtpHeader {
+    pub fn offset(&self) -> usize {
+        self.offset
+    }
     pub fn e(&self) -> bool {
         self.e
     }
@@ -166,5 +184,30 @@ mod tests {
     fn gtpu_e_flag_rejection(){
         let bytes = [0x36, 0xFF, 0x00, 0x06, 0x11, 0x22, 0x33, 0x44, 0x00, 0x07, 0x00, 0x00, 0xDE, 0xAD, 0xBE, 0xEF];
         assert!(parse_gtpu_header(&bytes).is_err());
+    }
+
+    #[test]
+    fn dispatch_returns_gpdu(){
+        let bytes = gptu_flag_sample();
+        let (header,_) = parse_gtpu_header(&bytes).unwrap();
+        let answer = dispatch_gtpu(&header, &bytes).unwrap();
+        assert_eq!(answer,Some(&[0xDE, 0xAD, 0xBE, 0xEF][..]));
+    }
+
+    #[test]
+    fn dispatch_returns_none(){
+        let mut bytes = gptu_no_flag_sample();
+        bytes[1] = 0x01;
+        let (header,_) = parse_gtpu_header(&bytes).unwrap();
+        let answer = dispatch_gtpu(&header, &bytes).unwrap();
+        assert_eq!(answer,None);
+    }
+
+    #[test]
+    fn dispatch_rejects_incorrect_length(){
+        let mut bytes = gptu_flag_sample();
+        bytes[3] = 0xFF;
+        let (header,_) = parse_gtpu_header(&bytes).unwrap();
+        assert!(dispatch_gtpu(&header, &bytes).is_err());
     }
 }

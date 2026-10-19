@@ -1,4 +1,5 @@
 mod gtpu_header;
+mod gtpu_builder;
 
 #[cfg(test)]
 mod tests {
