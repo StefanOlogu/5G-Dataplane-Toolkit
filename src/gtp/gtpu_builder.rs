@@ -1,6 +1,6 @@
 use std::error::Error;
 
-pub fn build_gtpu_header(teid: u32, tpdu: &[u8]) -> Result<Vec<u8>, Box<dyn Error>>{
+pub fn build_gtpu_header(teid: u32, tpdu: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
     if tpdu.len() > u16::MAX as usize {
         return Err(From::from("T-PDU too large for GTP-U length field"));
     }
@@ -17,10 +17,10 @@ pub fn build_gtpu_header(teid: u32, tpdu: &[u8]) -> Result<Vec<u8>, Box<dyn Erro
 
 #[cfg(test)]
 mod tests {
-    use crate::gtp::dispatch::dispatch_gtpu;
-    use crate::gtp::gtpu_header::{parse_gtpu_header, MessageType};
     use super::*;
-    
+    use crate::gtp::dispatch::dispatch_gtpu;
+    use crate::gtp::gtpu_header::{MessageType, parse_gtpu_header};
+
     #[test]
     fn roundtrip_builder_to_parser_gtpu() {
         let tpdu = [0xDE, 0xAD, 0xBE, 0xEF];

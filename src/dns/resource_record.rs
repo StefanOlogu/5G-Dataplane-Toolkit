@@ -1,33 +1,38 @@
+use crate::dns::read_name;
+use crate::wire::{BoxError, be_u16, be_u32};
 use std::error::Error;
-use crate::dns::{read_name};
-use crate::wire::{be_u16,be_u32};
 
 pub struct RecordFormat {
-    name:Vec<u8>,
-    record_type:u16,
+    name: Vec<u8>,
+    record_type: u16,
     class: u16,
     ttl: u32,
     rdlength: u16,
     rdata: Vec<u8>,
 }
 
-pub fn parse_record(bytes : &[u8], offset:usize) -> Result<(RecordFormat, usize), Box<dyn Error>> {
-    let (name,resume_from_name) = read_name(bytes, offset)?;
-    let record_type = be_u16(bytes,resume_from_name)?;
-    let class = be_u16(bytes,resume_from_name +2)?;
-    let ttl = be_u32(bytes,resume_from_name +4)?;
-    let rdlength = be_u16(bytes,resume_from_name +8)?;
-    let rdata_slice = bytes.get(resume_from_name+10..resume_from_name+ 10 +rdlength as usize).ok_or("rdata is missing bytes")?;
+pub fn parse_record(bytes: &[u8], offset: usize) -> Result<(RecordFormat, usize), BoxError> {
+    let (name, resume_from_name) = read_name(bytes, offset)?;
+    let record_type = be_u16(bytes, resume_from_name)?;
+    let class = be_u16(bytes, resume_from_name + 2)?;
+    let ttl = be_u32(bytes, resume_from_name + 4)?;
+    let rdlength = be_u16(bytes, resume_from_name + 8)?;
+    let rdata_slice = bytes
+        .get(resume_from_name + 10..resume_from_name + 10 + rdlength as usize)
+        .ok_or("rdata is missing bytes")?;
     let rdata = rdata_slice.to_vec();
 
-    Ok((RecordFormat{
-        name,
-        record_type,
-        class,
-        ttl,
-        rdlength,
-        rdata
-    },resume_from_name +10 + rdlength as usize))
+    Ok((
+        RecordFormat {
+            name,
+            record_type,
+            class,
+            ttl,
+            rdlength,
+            rdata,
+        },
+        resume_from_name + 10 + rdlength as usize,
+    ))
 }
 
 impl RecordFormat {
@@ -53,8 +58,8 @@ impl RecordFormat {
 
 #[cfg(test)]
 mod tests {
-    use crate::dns::test_support::sample_dns_header;
     use super::*;
+    use crate::dns::test_support::sample_dns_header;
 
     #[test]
     fn parse_two_answer_records() {
@@ -62,8 +67,8 @@ mod tests {
 
         let (rr1, r1) = parse_record(&msg, 29).unwrap();
         assert_eq!(rr1.name, b"example.com");
-        assert_eq!(rr1.record_type, 1);              // A
-        assert_eq!(rr1.class, 1);                     // IN
+        assert_eq!(rr1.record_type, 1); // A
+        assert_eq!(rr1.class, 1); // IN
         assert_eq!(rr1.rdlength, 4);
         assert_eq!(rr1.rdata, [0xac, 0x42, 0x93, 0xf3]);
         assert_eq!(r1, 45);
@@ -73,4 +78,3 @@ mod tests {
         assert_eq!(r2, 61);
     }
 }
-

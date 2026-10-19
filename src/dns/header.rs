@@ -1,3 +1,4 @@
+use crate::wire::BoxError;
 use std::error::Error;
 
 #[derive(Debug)]
@@ -17,7 +18,7 @@ pub struct DnsHeader {
     arcount: u16,
 }
 
-pub fn parse_dns_header(bytes: &[u8]) -> Result<DnsHeader, Box<dyn Error>> {
+pub fn parse_dns_header(bytes: &[u8]) -> Result<DnsHeader, BoxError> {
     if bytes.len() < 12 {
         return Err("dns header too short".into());
     }
@@ -96,11 +97,9 @@ impl DnsHeader {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn parse_one_dns_header() {
@@ -130,5 +129,4 @@ mod tests {
         let bytes = [0u8; 11];
         assert!(parse_dns_header(&bytes).is_err());
     }
-
 }

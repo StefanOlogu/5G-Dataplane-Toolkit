@@ -1,19 +1,26 @@
+use crate::dns::read_name;
+use crate::wire::{BoxError, be_u16};
 use std::error::Error;
-use crate::dns::{read_name};
-use crate::wire::{be_u16};
 
 pub struct QuestionFormat {
-    qname:Vec<u8>,
-    qtype:u16,
+    qname: Vec<u8>,
+    qtype: u16,
     qclass: u16,
 }
 
-pub fn parse_question(bytes: &[u8], offset: usize) -> Result<(QuestionFormat, usize), Box<dyn Error>> {
-    let (qname,resume) = read_name(bytes, offset)?;
+pub fn parse_question(bytes: &[u8], offset: usize) -> Result<(QuestionFormat, usize), BoxError> {
+    let (qname, resume) = read_name(bytes, offset)?;
     let qtype = be_u16(bytes, resume)?;
-    let qclass = be_u16(bytes,resume +2)?;
+    let qclass = be_u16(bytes, resume + 2)?;
 
-    Ok((QuestionFormat {qname, qtype, qclass}, resume + 4))
+    Ok((
+        QuestionFormat {
+            qname,
+            qtype,
+            qclass,
+        },
+        resume + 4,
+    ))
 }
 
 impl QuestionFormat {
@@ -37,8 +44,8 @@ mod tests {
         let msg = crate::dns::test_support::sample_dns_header();
         let (q, resume) = parse_question(&msg, 12).unwrap();
         assert_eq!(q.qname, b"example.com");
-        assert_eq!(q.qtype, 1);   // A
-        assert_eq!(q.qclass, 1);  // IN
+        assert_eq!(q.qtype, 1); // A
+        assert_eq!(q.qclass, 1); // IN
         assert_eq!(resume, 29);
     }
 
@@ -71,5 +78,4 @@ mod tests {
         );
         assert_eq!(resume, 31);
     }
-
 }

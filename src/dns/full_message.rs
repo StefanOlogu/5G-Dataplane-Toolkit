@@ -1,7 +1,8 @@
-use std::error::Error;
 use crate::dns::header::{DnsHeader, parse_dns_header};
 use crate::dns::question::{QuestionFormat, parse_question};
 use crate::dns::resource_record::{RecordFormat, parse_record};
+use crate::wire::BoxError;
+use std::error::Error;
 
 pub struct DnsMessage {
     header: DnsHeader,
@@ -11,16 +12,16 @@ pub struct DnsMessage {
     additionals: Vec<RecordFormat>,
 }
 
-pub fn parse_message(bytes: &[u8]) -> Result<DnsMessage, Box<dyn Error>> {
+pub fn parse_message(bytes: &[u8]) -> Result<DnsMessage, BoxError> {
     let header = parse_dns_header(bytes)?;
     let mut offset = 12;
-    let mut questions : Vec<QuestionFormat> = vec![];
-    let mut answers : Vec<RecordFormat> = vec![];
-    let mut authorities : Vec<RecordFormat> = vec![];
-    let mut additionals : Vec<RecordFormat> = vec![];
+    let mut questions: Vec<QuestionFormat> = vec![];
+    let mut answers: Vec<RecordFormat> = vec![];
+    let mut authorities: Vec<RecordFormat> = vec![];
+    let mut additionals: Vec<RecordFormat> = vec![];
 
     for _ in 0..header.qdcount() {
-        let (current_question,  current_offset) = parse_question(bytes, offset)?;
+        let (current_question, current_offset) = parse_question(bytes, offset)?;
         questions.push(current_question);
         offset = current_offset;
     }
@@ -43,7 +44,7 @@ pub fn parse_message(bytes: &[u8]) -> Result<DnsMessage, Box<dyn Error>> {
         offset = current_offset;
     }
 
-    Ok(DnsMessage{
+    Ok(DnsMessage {
         header,
         questions,
         answers,
@@ -52,7 +53,7 @@ pub fn parse_message(bytes: &[u8]) -> Result<DnsMessage, Box<dyn Error>> {
     })
 }
 
-impl DnsMessage{
+impl DnsMessage {
     pub fn header(&self) -> &DnsHeader {
         &self.header
     }
@@ -72,8 +73,8 @@ impl DnsMessage{
 
 #[cfg(test)]
 mod tests {
-    use crate::dns::test_support::sample_dns_header;
     use super::*;
+    use crate::dns::test_support::sample_dns_header;
 
     #[test]
     fn parse_full_message() {
@@ -89,6 +90,6 @@ mod tests {
         assert_eq!(m.questions[0].qname(), b"example.com");
         assert_eq!(*m.answers[0].rdata(), [0xac, 0x42, 0x93, 0xf3]);
         assert_eq!(*m.answers[1].rdata(), [0x68, 0x14, 0x17, 0x9a]);
-        assert_eq!(m.additionals[0].record_type(), 41);  // OPT = 41
+        assert_eq!(m.additionals[0].record_type(), 41); // OPT = 41
     }
 }

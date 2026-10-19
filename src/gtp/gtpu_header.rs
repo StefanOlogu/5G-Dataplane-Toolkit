@@ -1,20 +1,20 @@
-use std::error::Error;
 use crate::gtp::extension_walker::extension_walker;
-use crate::wire::{be_u16, be_u32, be_u8};
+use crate::wire::{be_u8, be_u16, be_u32};
+use std::error::Error;
 
 pub struct GtpHeader {
-    offset:usize,
-    e:bool,
-    s:bool,
-    pn:bool,
+    offset: usize,
+    e: bool,
+    s: bool,
+    pn: bool,
     message_type: MessageType,
-    length:u16,
-    teid:u32,
-    seq_num:Option<u16>,
-    npdu_num:Option<u8>,
-    next_extension_header_type:Option<u8>,
+    length: u16,
+    teid: u32,
+    seq_num: Option<u16>,
+    npdu_num: Option<u8>,
+    next_extension_header_type: Option<u8>,
 }
-#[derive(Debug, Clone, Copy,PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MessageType {
     Request,
     Response,
@@ -25,9 +25,8 @@ pub enum MessageType {
     Unknown(u8),
 }
 
-pub fn parse_gtpu_header(bytes:&[u8]) ->Result<(GtpHeader, usize), Box<dyn Error>> {
-
-    let first_byte = be_u8(bytes,0)?;
+pub fn parse_gtpu_header(bytes: &[u8]) -> Result<(GtpHeader, usize), Box<dyn Error + Send + Sync>> {
+    let first_byte = be_u8(bytes, 0)?;
     let version = (first_byte & 0xE0) >> 5;
     if version != 1 {
         return Err(From::from("Unsupported GTP-U version"));
@@ -38,9 +37,9 @@ pub fn parse_gtpu_header(bytes:&[u8]) ->Result<(GtpHeader, usize), Box<dyn Error
         return Err(From::from("GTP' detected instead of GTP"));
     }
 
-    let e = (first_byte & 0x04)!=0;
-    let s = (first_byte & 0x02) !=0;
-    let pn = (first_byte & 0x01) !=0;
+    let e = (first_byte & 0x04) != 0;
+    let s = (first_byte & 0x02) != 0;
+    let pn = (first_byte & 0x01) != 0;
 
     let offset = if e {
         extension_walker(bytes)?
@@ -52,15 +51,13 @@ pub fn parse_gtpu_header(bytes:&[u8]) ->Result<(GtpHeader, usize), Box<dyn Error
 
     let message_type = MessageType::from(be_u8(bytes, 1)?);
 
+    let length = be_u16(bytes, 2).map_err(|e| format!("GTP-U Length: {e}"))?;
+    let teid = be_u32(bytes, 4).map_err(|e| format!("GTP-U Teid: {e}"))?;
 
-    let length =be_u16(bytes,2).map_err(|e| format!("GTP-U Length: {e}"))?;
-    let teid = be_u32(bytes,4).map_err(|e| format!("GTP-U Teid: {e}"))?;
-
-
-    let (seq_num,npdu_num,next_extension_header_type,offset) = if e || s || pn {
+    let (seq_num, npdu_num, next_extension_header_type, offset) = if e || s || pn {
         let mut seq_num = None;
-        if s{
-            seq_num = Some(be_u16(bytes,8).map_err(|e| format!("GTP-U Sequence Number: {e}"))?);
+        if s {
+            seq_num = Some(be_u16(bytes, 8).map_err(|e| format!("GTP-U Sequence Number: {e}"))?);
         }
 
         let mut npdu_num = None;
@@ -69,30 +66,30 @@ pub fn parse_gtpu_header(bytes:&[u8]) ->Result<(GtpHeader, usize), Box<dyn Error
         }
 
         let mut next_extension_header_type = None;
-        if e{
-
-            next_extension_header_type = Some(be_u8(bytes,11)?);
+        if e {
+            next_extension_header_type = Some(be_u8(bytes, 11)?);
         }
-        (seq_num,npdu_num,next_extension_header_type, 12)
-    }
-    else{
-        (None,None,None, 8)
+        (seq_num, npdu_num, next_extension_header_type, 12)
+    } else {
+        (None, None, None, 8)
     };
 
-    Ok((GtpHeader{
+    Ok((
+        GtpHeader {
+            offset,
+            e,
+            s,
+            pn,
+            message_type,
+            length,
+            teid,
+            seq_num,
+            npdu_num,
+            next_extension_header_type,
+        },
         offset,
-        e,
-        s,
-        pn,
-        message_type,
-        length,
-        teid,
-        seq_num,
-        npdu_num,
-        next_extension_header_type
-    }, offset))
+    ))
 }
-
 
 impl GtpHeader {
     pub fn offset(&self) -> usize {
@@ -128,7 +125,7 @@ impl GtpHeader {
 }
 
 impl From<u8> for MessageType {
-    fn from(n:u8) -> Self {
+    fn from(n: u8) -> Self {
         match n {
             1 => MessageType::Request,
             2 => MessageType::Response,
@@ -143,20 +140,20 @@ impl From<u8> for MessageType {
 
 #[cfg(test)]
 mod tests {
-    use crate::gtp::tests::{gptu_flag_sample, gptu_no_flag_sample};
     use super::*;
+    use crate::gtp::tests::{gptu_flag_sample, gptu_no_flag_sample};
 
     #[test]
     fn gtpu_happy_path() {
         let bytes = gptu_no_flag_sample();
-        let (header,offset) = parse_gtpu_header(&bytes).unwrap();
-        assert_eq!(header.teid(),287454020);
-        assert_eq!(header.length(),4);
+        let (header, offset) = parse_gtpu_header(&bytes).unwrap();
+        assert_eq!(header.teid(), 287454020);
+        assert_eq!(header.length(), 4);
         assert_eq!(header.message_type(), MessageType::GPdu);
         assert!(!header.e());
         assert!(!header.pn());
         assert!(!header.s());
-        assert_eq!(offset,8);
+        assert_eq!(offset, 8);
 
         let bytes = gptu_flag_sample();
         let (header, offset) = parse_gtpu_header(&bytes).unwrap();
@@ -167,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn gtpu_truncated(){
+    fn gtpu_truncated() {
         let full = gptu_no_flag_sample();
         assert!(parse_gtpu_header(&full[..6]).is_err());
     }
