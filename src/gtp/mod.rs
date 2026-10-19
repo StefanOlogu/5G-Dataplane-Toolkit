@@ -1,10 +1,12 @@
 mod gtpu_header;
 mod gtpu_builder;
+mod dispatch;
 
 #[cfg(test)]
 mod tests {
     use crate::gtp::gtpu_builder::build_gtpu_header;
-    use crate::gtp::gtpu_header::{parse_gtpu_header, MessageType, dispatch_gtpu};
+    use crate::gtp::gtpu_header::{parse_gtpu_header, MessageType};
+    use crate::gtp::dispatch::{dispatch_gtpu};
 
     pub(crate) fn gptu_no_flag_sample() -> [u8; 12] {
         let bytes: [u8;12] = [
