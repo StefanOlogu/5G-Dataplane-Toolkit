@@ -1,6 +1,5 @@
 use crate::gtp::extension_walker::extension_walker;
 use crate::wire::{be_u8, be_u16, be_u32, BoxError};
-use std::error::Error;
 
 pub struct GtpHeader {
     offset: usize,
@@ -167,5 +166,18 @@ mod tests {
     fn gtpu_truncated() {
         let full = gptu_no_flag_sample();
         assert!(parse_gtpu_header(&full[..6]).is_err());
+    }
+
+    #[test]
+    fn offset_includes_extension_chain() {
+        let bytes = [
+            0x34, 0xFF, 0x00, 0x0C, 0x12, 0x34, 0x56, 0x78,
+            0x00, 0x00, 0x00, 0x85,
+            0x01, 0x00, 0x09, 0x00,
+            0xAA, 0xBB, 0xCC, 0xDD,
+        ];
+        let (header, offset) = parse_gtpu_header(&bytes).unwrap();
+        assert_eq!(offset, 16);
+        assert_eq!(header.offset(), 16);
     }
 }

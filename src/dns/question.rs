@@ -1,6 +1,5 @@
 use crate::dns::read_name;
 use crate::wire::{BoxError, be_u16};
-use std::error::Error;
 
 pub struct QuestionFormat {
     qname: Vec<u8>,

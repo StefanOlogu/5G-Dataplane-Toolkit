@@ -1,5 +1,4 @@
 use std::convert::TryInto;
-use std::error::Error;
 
 //helper for parsing
 

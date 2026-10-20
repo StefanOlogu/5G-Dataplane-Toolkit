@@ -1,5 +1,4 @@
 use crate::wire::BoxError;
-use std::error::Error;
 
 #[derive(Debug)]
 pub struct DnsHeader {

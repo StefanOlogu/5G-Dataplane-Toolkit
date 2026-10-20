@@ -1,6 +1,5 @@
 use crate::dns::read_name;
 use crate::wire::{BoxError, be_u16, be_u32};
-use std::error::Error;
 
 pub struct RecordFormat {
     name: Vec<u8>,

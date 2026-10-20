@@ -2,8 +2,6 @@ use crate::dns::header::{DnsHeader, parse_dns_header};
 use crate::dns::question::{QuestionFormat, parse_question};
 use crate::dns::resource_record::{RecordFormat, parse_record};
 use crate::wire::BoxError;
-use std::error::Error;
-
 pub struct DnsMessage {
     header: DnsHeader,
     questions: Vec<QuestionFormat>,

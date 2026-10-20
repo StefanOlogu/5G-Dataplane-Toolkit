@@ -1,6 +1,5 @@
 use crate::gtp::gtpu_header::{GtpHeader, MessageType};
 use crate::wire::BoxError;
-use std::error::Error;
 
 pub fn dispatch_gtpu<'a>(
     header: &GtpHeader,

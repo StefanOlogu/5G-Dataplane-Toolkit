@@ -11,7 +11,6 @@ pub use question::QuestionFormat;
 pub use resource_record::RecordFormat;
 
 use crate::wire::BoxError;
-use std::error::Error;
 
 //helper for reading QNAME and NAME
 pub fn read_name(msg: &[u8], offset: usize) -> Result<(Vec<u8>, usize), BoxError> {

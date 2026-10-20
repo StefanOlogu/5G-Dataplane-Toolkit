@@ -39,6 +39,7 @@ pub fn handle_datagram<'a>(table: &ForwardingTable, buf: &'a [u8], _src: SocketA
 
 #[cfg(test)]
 mod tests {
+    use crate::gtp::fixtures::gpdu;
     use super::*;
 
     const TEID: u32 = 0x1234_5678;
@@ -55,14 +56,6 @@ mod tests {
         let mut t = ForwardingTable::new();
         t.insert(teid, dst);
         t
-    }
-
-    fn gpdu(teid: u32, payload: &[u8]) -> Vec<u8> {
-        let mut p = vec![0x30, 0xFF];
-        p.extend_from_slice(&(payload.len() as u16).to_be_bytes());
-        p.extend_from_slice(&teid.to_be_bytes());
-        p.extend_from_slice(payload);
-        p
     }
 
     #[test]

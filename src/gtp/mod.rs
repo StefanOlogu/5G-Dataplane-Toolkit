@@ -8,9 +8,6 @@ pub use gtpu_header::*;
 
 #[cfg(test)]
 mod tests {
-    use crate::gtp::dispatch::dispatch_gtpu;
-    use crate::gtp::gtpu_builder::build_gtpu_header;
-    use crate::gtp::gtpu_header::{MessageType, parse_gtpu_header};
 
     pub(crate) fn gptu_no_flag_sample() -> [u8; 12] {
         let bytes: [u8; 12] = [
@@ -35,5 +32,16 @@ mod tests {
             0xDE, 0xAD, 0xBE, 0xEF, //inner packet
         ];
         bytes
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod fixtures {
+    pub fn gpdu(teid: u32, payload: &[u8]) -> Vec<u8> {
+        let mut p = vec![0x30, 0xFF];
+        p.extend_from_slice(&(payload.len() as u16).to_be_bytes());
+        p.extend_from_slice(&teid.to_be_bytes());
+        p.extend_from_slice(payload);
+        p
     }
 }
