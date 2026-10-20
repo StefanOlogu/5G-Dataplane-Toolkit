@@ -1,5 +1,5 @@
 use crate::gtp::extension_walker::extension_walker;
-use crate::wire::{be_u8, be_u16, be_u32};
+use crate::wire::{be_u8, be_u16, be_u32, BoxError};
 use std::error::Error;
 
 pub struct GtpHeader {
@@ -25,7 +25,7 @@ pub enum MessageType {
     Unknown(u8),
 }
 
-pub fn parse_gtpu_header(bytes: &[u8]) -> Result<(GtpHeader, usize), Box<dyn Error + Send + Sync>> {
+pub fn parse_gtpu_header(bytes: &[u8]) -> Result<(GtpHeader, usize), BoxError> {
     let first_byte = be_u8(bytes, 0)?;
     let version = (first_byte & 0xE0) >> 5;
     if version != 1 {
@@ -54,7 +54,7 @@ pub fn parse_gtpu_header(bytes: &[u8]) -> Result<(GtpHeader, usize), Box<dyn Err
     let length = be_u16(bytes, 2).map_err(|e| format!("GTP-U Length: {e}"))?;
     let teid = be_u32(bytes, 4).map_err(|e| format!("GTP-U Teid: {e}"))?;
 
-    let (seq_num, npdu_num, next_extension_header_type, offset) = if e || s || pn {
+    let (seq_num, npdu_num, next_extension_header_type) = if e || s || pn {
         let mut seq_num = None;
         if s {
             seq_num = Some(be_u16(bytes, 8).map_err(|e| format!("GTP-U Sequence Number: {e}"))?);
@@ -69,9 +69,9 @@ pub fn parse_gtpu_header(bytes: &[u8]) -> Result<(GtpHeader, usize), Box<dyn Err
         if e {
             next_extension_header_type = Some(be_u8(bytes, 11)?);
         }
-        (seq_num, npdu_num, next_extension_header_type, 12)
+        (seq_num, npdu_num, next_extension_header_type)
     } else {
-        (None, None, None, 8)
+        (None, None, None)
     };
 
     Ok((
