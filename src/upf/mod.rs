@@ -1,42 +1,42 @@
+use crate::upf::decision::{Action, handle_datagram};
 use tokio::net::UdpSocket;
-use crate::upf::decision::{handle_datagram, Action};
 
 mod decision;
 mod table;
 
-pub use crate::upf::table::ForwardingTable;
+pub use crate::upf::table::{Session, SessionTable};
 
 pub struct Upf {
     n3: UdpSocket,
     n6: UdpSocket,
-    table: ForwardingTable,
+    table: SessionTable,
 }
 
 impl Upf {
-    pub fn new(n3: UdpSocket, n6:UdpSocket, table:ForwardingTable) -> Self {
-        Self {n3, n6, table}
+    pub fn new(n3: UdpSocket, n6: UdpSocket, table: SessionTable) -> Self {
+        Self { n3, n6, table }
     }
 
     pub async fn run(self) -> std::io::Result<()> {
         let mut buf = vec![0u8; 65536];
-        loop{
-            let (n, src) = match self.n3.recv_from(&mut buf).await{
+        loop {
+            let (n, src) = match self.n3.recv_from(&mut buf).await {
                 Ok((n, src)) => (n, src),
                 Err(e) => {
-                    eprintln!("n3 recv error: {}",e);
+                    eprintln!("n3 recv error: {}", e);
                     continue;
                 }
             };
 
             let action = handle_datagram(&self.table, &buf[..n], src);
             match action {
-                Action::Forward {dst,payload} => {
-                    if let Err(e) = self.n6.send_to(payload,dst).await{
-                        eprintln!("n6 send to {dst} failed: {}",e);
+                Action::Forward { dst, payload } => {
+                    if let Err(e) = self.n6.send_to(payload, dst).await {
+                        eprintln!("n6 send to {dst} failed: {}", e);
                     }
                 }
 
-                Action::Drop(reason) => eprintln!("drop from {src}: {reason:?}")
+                Action::Drop(reason) => eprintln!("drop from {src}: {reason:?}"),
             }
         }
     }
@@ -45,14 +45,13 @@ impl Upf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::gtp::fixtures::gpdu;
     use std::net::SocketAddr;
     use std::time::Duration;
     use tokio::task::JoinHandle;
     use tokio::time::timeout;
-    use crate::gtp::fixtures::gpdu;
 
     const TEID: u32 = 0x1234_5678;
-
 
     struct Harness {
         gnb: UdpSocket,
@@ -71,11 +70,25 @@ mod tests {
         let n3_addr = n3.local_addr().unwrap();
         let n6_addr = n6.local_addr().unwrap();
 
-        let mut table = ForwardingTable::new();
-        table.insert(TEID, sink.local_addr().unwrap());
+        let mut table = SessionTable::new();
+        table
+            .insert(Session {
+                ue_ip: "10.45.0.2".parse().unwrap(),
+                ul_teid: TEID,
+                dl_teid: 0x0000_0001,
+                gnb: gnb.local_addr().unwrap(),
+                n6_peer: sink.local_addr().unwrap(),
+            })
+            .unwrap();
 
         let handle = tokio::spawn(Upf::new(n3, n6, table).run());
-        Harness { gnb, sink, n3_addr, n6_addr, handle }
+        Harness {
+            gnb,
+            sink,
+            n3_addr,
+            n6_addr,
+            handle,
+        }
     }
 
     async fn recv_one(sock: &UdpSocket) -> (Vec<u8>, SocketAddr) {
@@ -91,7 +104,10 @@ mod tests {
     async fn forwards_decapsulated_payload_via_n6() {
         let h = start_upf().await;
 
-        h.gnb.send_to(&gpdu(TEID, &[1, 2, 3, 4]), h.n3_addr).await.unwrap();
+        h.gnb
+            .send_to(&gpdu(TEID, &[1, 2, 3, 4]), h.n3_addr)
+            .await
+            .unwrap();
 
         let (data, from) = recv_one(&h.sink).await;
         assert_eq!(data, [1, 2, 3, 4]);
@@ -104,17 +120,15 @@ mod tests {
         let h = start_upf().await;
 
         let echo = [0x32, 0x01, 0x00, 0x04, 0, 0, 0, 0, 0x00, 0x01, 0x00, 0x00];
-        let poison: [&[u8]; 4] = [
-            &[0xFF, 0x00],
-            &[],
-            &gpdu(0xDEAD_BEEF, &[7, 7]),
-            &echo,
-        ];
+        let poison: [&[u8]; 4] = [&[0xFF, 0x00], &[], &gpdu(0xDEAD_BEEF, &[7, 7]), &echo];
         for p in poison {
             h.gnb.send_to(p, h.n3_addr).await.unwrap();
         }
 
-        h.gnb.send_to(&gpdu(TEID, &[9, 9, 9, 9]), h.n3_addr).await.unwrap();
+        h.gnb
+            .send_to(&gpdu(TEID, &[9, 9, 9, 9]), h.n3_addr)
+            .await
+            .unwrap();
 
         let (data, _) = recv_one(&h.sink).await;
         assert_eq!(data, [9, 9, 9, 9]);

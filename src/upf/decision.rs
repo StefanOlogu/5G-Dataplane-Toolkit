@@ -1,5 +1,5 @@
 use crate::gtp::{MessageType, dispatch_gtpu, parse_gtpu_header};
-use crate::upf::table::ForwardingTable;
+use crate::upf::table::SessionTable;
 use crate::wire::BoxError;
 use std::net::SocketAddr;
 
@@ -17,7 +17,7 @@ pub enum DropReason {
     UnknownTeid(u32),
 }
 
-pub fn handle_datagram<'a>(table: &ForwardingTable, buf: &'a [u8], _src: SocketAddr) -> Action<'a> {
+pub fn handle_datagram<'a>(table: &SessionTable, buf: &'a [u8], _src: SocketAddr) -> Action<'a> {
     let (header, _) = match parse_gtpu_header(buf) {
         Ok(header) => header,
 
@@ -30,17 +30,21 @@ pub fn handle_datagram<'a>(table: &ForwardingTable, buf: &'a [u8], _src: SocketA
         Err(e) => return Action::Drop(DropReason::Malformed(e)),
     };
 
-    let Some(dst) = table.lookup(header.teid()) else {
+    let Some(session) = table.lookup_uplink(header.teid()) else {
         return Action::Drop(DropReason::UnknownTeid(header.teid()));
     };
 
-    Action::Forward { dst, payload: tpdu }
+    Action::Forward {
+        dst: session.n6_peer,
+        payload: tpdu,
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::gtp::fixtures::gpdu;
     use super::*;
+    use crate::gtp::fixtures::gpdu;
+    use crate::upf::Session;
 
     const TEID: u32 = 0x1234_5678;
 
@@ -52,9 +56,18 @@ mod tests {
         "127.0.0.1:9000".parse().unwrap()
     }
 
-    fn table_with(teid: u32, dst: SocketAddr) -> ForwardingTable {
-        let mut t = ForwardingTable::new();
-        t.insert(teid, dst);
+    fn session(ul_teid: u32, n6_peer: SocketAddr) -> Session {
+        Session {
+            ue_ip: "10.45.0.2".parse().unwrap(),
+            ul_teid,
+            dl_teid: 0x0000_0001,
+            gnb: "10.0.0.2:1000".parse().unwrap(),
+            n6_peer,
+        }
+    }
+    fn table_with(teid: u32, n6_peer: SocketAddr) -> SessionTable {
+        let mut t = SessionTable::new();
+        t.insert(session(teid, n6_peer)).unwrap();
         t
     }
 
