@@ -11,7 +11,7 @@ async fn main() -> Result<(), BoxError> {
         ue_ip: "10.45.0.2".parse()?,
         ul_teid: 1,
         dl_teid: 0x0000_0001,
-        gnb: "10.0.0.2:1000".parse()?,
+        gnb: "127.0.0.1:2153".parse()?,
         n6_peer: "127.0.0.1:9000".parse()?,
     };
 
