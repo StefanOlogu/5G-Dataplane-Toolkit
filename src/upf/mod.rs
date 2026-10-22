@@ -1,4 +1,4 @@
-use crate::upf::decision::{Action, handle_datagram};
+use crate::upf::decision::{UplinkAction, handle_uplink};
 use tokio::net::UdpSocket;
 
 mod decision;
@@ -28,15 +28,15 @@ impl Upf {
                 }
             };
 
-            let action = handle_datagram(&self.table, &buf[..n], src);
+            let action = handle_uplink(&self.table, &buf[..n], src);
             match action {
-                Action::Forward { dst, payload } => {
+                UplinkAction::Forward { dst, payload } => {
                     if let Err(e) = self.n6.send_to(payload, dst).await {
                         eprintln!("n6 send to {dst} failed: {}", e);
                     }
                 }
 
-                Action::Drop(reason) => eprintln!("drop from {src}: {reason:?}"),
+                UplinkAction::Drop(reason) => eprintln!("drop from {src}: {reason:?}"),
             }
         }
     }

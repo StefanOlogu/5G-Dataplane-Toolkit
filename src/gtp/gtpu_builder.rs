@@ -1,6 +1,6 @@
-use std::error::Error;
+use crate::wire::BoxError;
 
-pub fn build_gtpu_header(teid: u32, tpdu: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+pub fn build_gtpu_header(teid: u32, tpdu: &[u8]) -> Result<Vec<u8>, BoxError> {
     if tpdu.len() > u16::MAX as usize {
         return Err(From::from("T-PDU too large for GTP-U length field"));
     }
@@ -13,6 +13,22 @@ pub fn build_gtpu_header(teid: u32, tpdu: &[u8]) -> Result<Vec<u8>, Box<dyn Erro
     buf.extend_from_slice(&teid.to_be_bytes());
     buf.extend_from_slice(tpdu);
     Ok(buf)
+}
+
+pub fn write_gtpu_header(teid: u32, payload_len: usize, out: &mut [u8]) -> Result<usize, BoxError>{
+    if payload_len > u16::MAX as usize {
+        return Err(From::from("T-PDU too large for GTP-U length field"));
+    }
+
+    if out.len() < 8{
+        return Err(From::from("Output buffer too small for GTP-U header"));
+    }
+
+    out[0] = 0x30;
+    out[1] = 0xFF;
+    out[2..4].copy_from_slice(&(payload_len as u16).to_be_bytes());
+    out[4..8].copy_from_slice(&teid.to_be_bytes());
+    Ok(8)
 }
 
 #[cfg(test)]
@@ -29,5 +45,42 @@ mod tests {
         assert_eq!(header.teid(), 0x11223344);
         assert_eq!(header.message_type(), MessageType::GPdu);
         assert_eq!(dispatch_gtpu(&header, &frame).unwrap(), Some(&tpdu[..]));
+    }
+
+    #[test]
+    fn write_header_matches_builder() {
+        let tpdu = [0xDE, 0xAD, 0xBE, 0xEF];
+        let expected = build_gtpu_header(0x11223344, &tpdu).unwrap();
+
+        let mut out = [0u8; 8];
+        let n = write_gtpu_header(0x11223344, tpdu.len(), &mut out).unwrap();
+
+        assert_eq!(n, 8);
+        assert_eq!(&out[..], &expected[..8]);
+    }
+
+    #[test]
+    fn write_header_into_headroom_roundtrips() {
+        let tpdu = [0xDE, 0xAD, 0xBE, 0xEF];
+        let mut buf = [0u8; 8 + 4];
+        buf[8..].copy_from_slice(&tpdu);
+
+        write_gtpu_header(0x11223344, tpdu.len(), &mut buf[..8]).unwrap();
+
+        let (header, _) = parse_gtpu_header(&buf).unwrap();
+        assert_eq!(header.teid(), 0x11223344);
+        assert_eq!(dispatch_gtpu(&header, &buf).unwrap(), Some(&tpdu[..]));
+    }
+
+    #[test]
+    fn write_header_rejects_small_output() {
+        let mut out = [0u8; 7];
+        assert!(write_gtpu_header(1, 4, &mut out).is_err());
+    }
+
+    #[test]
+    fn write_header_rejects_oversized_payload() {
+        let mut out = [0u8; 8];
+        assert!(write_gtpu_header(1, u16::MAX as usize + 1, &mut out).is_err());
     }
 }

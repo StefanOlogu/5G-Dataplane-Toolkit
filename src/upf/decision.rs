@@ -1,40 +1,81 @@
-use crate::gtp::{MessageType, dispatch_gtpu, parse_gtpu_header};
+use crate::gtp::{MessageType, dispatch_gtpu, parse_gtpu_header,write_gtpu_header};
 use crate::upf::table::SessionTable;
 use crate::wire::BoxError;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 
 #[derive(Debug)]
-pub enum Action<'a> {
+pub enum UplinkAction<'a> {
     Forward { dst: SocketAddr, payload: &'a [u8] },
-    Drop(DropReason),
+    Drop(UplinkDropReason),
     //TODO:Echo -> Reply
 }
 
 #[derive(Debug)]
-pub enum DropReason {
+pub enum UplinkDropReason {
     Malformed(BoxError),
     NotGpdu(MessageType),
     UnknownTeid(u32),
 }
 
-pub fn handle_datagram<'a>(table: &SessionTable, buf: &'a [u8], _src: SocketAddr) -> Action<'a> {
+pub const HEADROOM: usize = 16;
+
+#[derive(Debug)]
+pub enum DownlinkAction<'a> {
+    Forward { dst: SocketAddr, datagram: &'a [u8] },
+    Drop(DownlinkDropReason),
+}
+
+#[derive(Debug)]
+pub enum DownlinkDropReason {
+    NotIpv4,
+    UnknownUe(Ipv4Addr),
+    Encap(BoxError),
+}
+
+pub fn handle_downlink<'a>(table: &SessionTable, buf: &'a mut [u8], n: usize) -> DownlinkAction<'a>{
+    let packet= match buf.get(HEADROOM.. HEADROOM + n){
+        Some(packet) => packet,
+        None => return DownlinkAction::Drop(DownlinkDropReason::NotIpv4),
+    };
+
+    if packet.len() < 20 || packet[0] >> 4 != 4{
+        return DownlinkAction::Drop(DownlinkDropReason::NotIpv4)
+    }
+
+    let dst_ip = Ipv4Addr::new(packet[16], packet[17], packet[18], packet[19]);
+
+    let session = match table.lookup_downlink(dst_ip){
+        Some(session) => session,
+        None => return DownlinkAction::Drop(DownlinkDropReason::UnknownUe(dst_ip)),
+    };
+
+    match write_gtpu_header(session.dl_teid,n,&mut buf[HEADROOM - 8..HEADROOM]) {
+        Ok(_) => DownlinkAction::Forward {
+            dst: session.gnb, datagram: &buf[HEADROOM - 8..HEADROOM + n]
+        },
+        Err(e) => DownlinkAction::Drop(DownlinkDropReason::Encap(e)),
+    }
+
+}
+
+pub fn handle_uplink<'a>(table: &SessionTable, buf: &'a [u8], _src: SocketAddr) -> UplinkAction<'a> {
     let (header, _) = match parse_gtpu_header(buf) {
         Ok(header) => header,
 
-        Err(e) => return Action::Drop(DropReason::Malformed(e)),
+        Err(e) => return UplinkAction::Drop(UplinkDropReason::Malformed(e)),
     };
 
     let tpdu = match dispatch_gtpu(&header, buf) {
         Ok(Some(tpdu)) => tpdu,
-        Ok(None) => return Action::Drop(DropReason::NotGpdu(header.message_type())),
-        Err(e) => return Action::Drop(DropReason::Malformed(e)),
+        Ok(None) => return UplinkAction::Drop(UplinkDropReason::NotGpdu(header.message_type())),
+        Err(e) => return UplinkAction::Drop(UplinkDropReason::Malformed(e)),
     };
 
     let Some(session) = table.lookup_uplink(header.teid()) else {
-        return Action::Drop(DropReason::UnknownTeid(header.teid()));
+        return UplinkAction::Drop(UplinkDropReason::UnknownTeid(header.teid()));
     };
 
-    Action::Forward {
+    UplinkAction::Forward {
         dst: session.n6_peer,
         payload: tpdu,
     }
@@ -76,9 +117,9 @@ mod tests {
         let buf = gpdu(TEID, &[1, 2, 3, 4]);
         let table = table_with(TEID, sink());
 
-        let action = handle_datagram(&table, &buf, src());
+        let action = handle_uplink(&table, &buf, src());
 
-        let Action::Forward { dst, payload } = action else {
+        let UplinkAction::Forward { dst, payload } = action else {
             panic!("expected Forward, got {action:?}");
         };
         assert_eq!(dst, sink());
@@ -95,9 +136,9 @@ mod tests {
         buf.extend_from_slice(&[0xAA, 0xBB, 0xCC, 0xDD]);
         let table = table_with(TEID, sink());
 
-        let action = handle_datagram(&table, &buf, src());
+        let action = handle_uplink(&table, &buf, src());
 
-        let Action::Forward { payload, .. } = action else {
+        let UplinkAction::Forward { payload, .. } = action else {
             panic!("expected Forward, got {action:?}");
         };
         assert_eq!(payload, &[0xAAu8, 0xBB, 0xCC, 0xDD][..]);
@@ -108,10 +149,10 @@ mod tests {
         let buf = gpdu(TEID, &[1, 2, 3, 4]);
         let table = table_with(0xDEAD_BEEF, sink());
 
-        let action = handle_datagram(&table, &buf, src());
+        let action = handle_uplink(&table, &buf, src());
 
         assert!(
-            matches!(action, Action::Drop(DropReason::UnknownTeid(t)) if t == TEID),
+            matches!(action, UplinkAction::Drop(UplinkDropReason::UnknownTeid(t)) if t == TEID),
             "got {action:?}"
         );
     }
@@ -121,10 +162,10 @@ mod tests {
         let buf = [0x32, 0x01, 0x00, 0x04, 0, 0, 0, 0, 0x00, 0x01, 0x00, 0x00];
         let table = table_with(0, sink());
 
-        let action = handle_datagram(&table, &buf, src());
+        let action = handle_uplink(&table, &buf, src());
 
         assert!(
-            matches!(action, Action::Drop(DropReason::NotGpdu(_))),
+            matches!(action, UplinkAction::Drop(UplinkDropReason::NotGpdu(_))),
             "got {action:?}"
         );
     }
@@ -135,10 +176,10 @@ mod tests {
         buf.truncate(buf.len() - 2);
         let table = table_with(TEID, sink());
 
-        let action = handle_datagram(&table, &buf, src());
+        let action = handle_uplink(&table, &buf, src());
 
         assert!(
-            matches!(action, Action::Drop(DropReason::Malformed(_))),
+            matches!(action, UplinkAction::Drop(UplinkDropReason::Malformed(_))),
             "got {action:?}"
         );
     }
@@ -148,10 +189,10 @@ mod tests {
         let buf = gpdu(TEID, &[1, 2, 3, 4]);
         let table = table_with(TEID, sink());
 
-        let action = handle_datagram(&table, &buf[..5], src());
+        let action = handle_uplink(&table, &buf[..5], src());
 
         assert!(
-            matches!(action, Action::Drop(DropReason::Malformed(_))),
+            matches!(action, UplinkAction::Drop(UplinkDropReason::Malformed(_))),
             "got {action:?}"
         );
     }
@@ -160,10 +201,10 @@ mod tests {
     fn drops_empty_buffer() {
         let table = table_with(TEID, sink());
 
-        let action = handle_datagram(&table, &[], src());
+        let action = handle_uplink(&table, &[], src());
 
         assert!(
-            matches!(action, Action::Drop(DropReason::Malformed(_))),
+            matches!(action, UplinkAction::Drop(UplinkDropReason::Malformed(_))),
             "got {action:?}"
         );
     }
@@ -173,11 +214,103 @@ mod tests {
         let buf = gpdu(TEID, &[]);
         let table = table_with(TEID, sink());
 
-        let action = handle_datagram(&table, &buf, src());
+        let action = handle_uplink(&table, &buf, src());
 
-        let Action::Forward { payload, .. } = action else {
+        let UplinkAction::Forward { payload, .. } = action else {
             panic!("expected Forward with empty payload, got {action:?}");
         };
         assert!(payload.is_empty());
+    }
+
+    fn ipv4_packet(dst: Ipv4Addr, payload: &[u8]) -> Vec<u8> {
+        let mut p = vec![0u8; 20];
+        p[0] = 0x45;
+        p[16..20].copy_from_slice(&dst.octets());
+        p.extend_from_slice(payload);
+        p
+    }
+
+    fn downlink_buf(packet: &[u8]) -> (Vec<u8>, usize) {
+        let mut buf = vec![0u8; HEADROOM];
+        buf.extend_from_slice(packet);
+        (buf, packet.len())
+    }
+
+    fn ue_ip() -> Ipv4Addr {
+        "10.45.0.2".parse().unwrap()
+    }
+
+    #[test]
+    fn downlink_encapsulates_for_known_ue() {
+        let packet = ipv4_packet(ue_ip(), &[1, 2, 3, 4]);
+        let (mut buf, n) = downlink_buf(&packet);
+        let table = table_with(TEID, sink());
+
+        let action = handle_downlink(&table, &mut buf, n);
+
+        let DownlinkAction::Forward { dst, datagram } = action else {
+            panic!("expected Forward, got {action:?}");
+        };
+        assert_eq!(dst, "10.0.0.2:1000".parse::<SocketAddr>().unwrap());
+        assert_eq!(datagram.len(), 8 + n);
+
+        let (header, _) = parse_gtpu_header(datagram).unwrap();
+        assert_eq!(header.teid(), 0x0000_0001);
+        assert_eq!(dispatch_gtpu(&header, datagram).unwrap(), Some(&packet[..]));
+    }
+
+    #[test]
+    fn downlink_drops_unknown_ue() {
+        let other: Ipv4Addr = "10.45.0.99".parse().unwrap();
+        let (mut buf, n) = downlink_buf(&ipv4_packet(other, &[1, 2]));
+        let table = table_with(TEID, sink());
+
+        let action = handle_downlink(&table, &mut buf, n);
+
+        assert!(
+            matches!(action, DownlinkAction::Drop(DownlinkDropReason::UnknownUe(ip)) if ip == other),
+            "got {action:?}"
+        );
+    }
+
+    #[test]
+    fn downlink_drops_ipv6() {
+        let mut packet = ipv4_packet(ue_ip(), &[1, 2]);
+        packet[0] = 0x60; // version 6
+        let (mut buf, n) = downlink_buf(&packet);
+        let table = table_with(TEID, sink());
+
+        let action = handle_downlink(&table, &mut buf, n);
+
+        assert!(
+            matches!(action, DownlinkAction::Drop(DownlinkDropReason::NotIpv4)),
+            "got {action:?}"
+        );
+    }
+
+    #[test]
+    fn downlink_drops_short_packet() {
+        let (mut buf, n) = downlink_buf(&[0x45; 10]);
+        let table = table_with(TEID, sink());
+
+        let action = handle_downlink(&table, &mut buf, n);
+
+        assert!(
+            matches!(action, DownlinkAction::Drop(DownlinkDropReason::NotIpv4)),
+            "got {action:?}"
+        );
+    }
+
+    #[test]
+    fn downlink_rejects_n_beyond_buffer() {
+        let (mut buf, n) = downlink_buf(&ipv4_packet(ue_ip(), &[1, 2]));
+        let table = table_with(TEID, sink());
+
+        let action = handle_downlink(&table, &mut buf, n + 100);
+
+        assert!(
+            matches!(action, DownlinkAction::Drop(DownlinkDropReason::NotIpv4)),
+            "got {action:?}"
+        );
     }
 }

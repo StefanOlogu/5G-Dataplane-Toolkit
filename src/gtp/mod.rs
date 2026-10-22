@@ -5,6 +5,7 @@ mod gtpu_header;
 
 pub use dispatch::*;
 pub use gtpu_header::*;
+pub use gtpu_builder::*;
 
 #[cfg(test)]
 mod tests {
