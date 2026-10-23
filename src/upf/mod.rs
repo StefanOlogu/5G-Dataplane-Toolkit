@@ -43,6 +43,11 @@ impl Upf {
                     eprintln!("n6 send to {dst} failed: {e}");
                 }
             }
+
+            UplinkAction::Reply { dst, datagram } => {
+                self.n3.send_to(&datagram, dst).await.unwrap();
+            }
+
             UplinkAction::Drop(reason) => eprintln!("Uplink dropped from {src}: {reason:?}"),
         }
     }

@@ -31,6 +31,23 @@ pub fn write_gtpu_header(teid: u32, payload_len: usize, out: &mut [u8]) -> Resul
     Ok(8)
 }
 
+pub fn build_echo_response(seq_num: u16) -> [u8; 14] {
+    let [seq_hi, seq_lo] = seq_num.to_be_bytes();
+
+    [
+        0x32,
+        0x02,
+        0x00, 0x06,
+        0x00, 0x00, 0x00, 0x00,
+        seq_hi,
+        seq_lo,
+        0x00,
+        0x00,
+        0x0E,
+        0x00,
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -82,5 +99,25 @@ mod tests {
     fn write_header_rejects_oversized_payload() {
         let mut out = [0u8; 8];
         assert!(write_gtpu_header(1, u16::MAX as usize + 1, &mut out).is_err());
+    }
+
+    #[test]
+    fn echo_response_exact_bytes() {
+        let expected = [
+            0x32, 0x02, 0x00, 0x06, // flags (S=1), Echo Response, length 6
+            0x00, 0x00, 0x00, 0x00, // TEID 0
+            0xAB, 0xCD,             // sequence number
+            0x00, 0x00,             // N-PDU, next ext type
+            0x0E, 0x00,             // Recovery IE, restart counter 0
+        ];
+        assert_eq!(build_echo_response(0xABCD), expected);
+    }
+
+    #[test]
+    fn echo_response_parses_with_own_parser() {
+        let resp = build_echo_response(0x0001);
+        let (header, _) = parse_gtpu_header(&resp).unwrap();
+        assert_eq!(header.message_type(), MessageType::EchoResponse);
+        assert_eq!(header.teid(), 0);
     }
 }

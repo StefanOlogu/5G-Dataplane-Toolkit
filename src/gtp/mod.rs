@@ -45,4 +45,11 @@ pub(crate) mod fixtures {
         p.extend_from_slice(payload);
         p
     }
+
+    pub fn echo_request(seq: u16) -> Vec<u8> {
+        let mut p = vec![0x32, 0x01, 0x00, 0x04, 0, 0, 0, 0];
+        p.extend_from_slice(&seq.to_be_bytes());
+        p.extend_from_slice(&[0x00, 0x00]); // N-PDU, next ext type
+        p
+    }
 }

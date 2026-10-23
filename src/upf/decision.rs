@@ -1,4 +1,4 @@
-use crate::gtp::{MessageType, dispatch_gtpu, parse_gtpu_header,write_gtpu_header};
+use crate::gtp::{build_echo_response, dispatch_gtpu, parse_gtpu_header, write_gtpu_header, MessageType};
 use crate::upf::table::SessionTable;
 use crate::wire::BoxError;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -6,8 +6,8 @@ use std::net::{Ipv4Addr, SocketAddr};
 #[derive(Debug)]
 pub enum UplinkAction<'a> {
     Forward { dst: SocketAddr, payload: &'a [u8] },
+    Reply { dst: SocketAddr, datagram : [u8;14]},
     Drop(UplinkDropReason),
-    //TODO:Echo -> Reply
 }
 
 #[derive(Debug)]
@@ -58,12 +58,24 @@ pub fn handle_downlink<'a>(table: &SessionTable, buf: &'a mut [u8], n: usize) ->
 
 }
 
-pub fn handle_uplink<'a>(table: &SessionTable, buf: &'a [u8], _src: SocketAddr) -> UplinkAction<'a> {
+pub fn handle_uplink<'a>(table: &SessionTable, buf: &'a [u8], src: SocketAddr) -> UplinkAction<'a> {
     let (header, _) = match parse_gtpu_header(buf) {
         Ok(header) => header,
 
         Err(e) => return UplinkAction::Drop(UplinkDropReason::Malformed(e)),
     };
+
+    if header.message_type() == MessageType::EchoRequest {
+        let Some(seq) = header.seq_num() else {
+            return UplinkAction::Drop(UplinkDropReason::Malformed(
+                "Echo Request without sequence number".into(),
+            ));
+        };
+        return UplinkAction::Reply {
+            dst: src,
+            datagram: build_echo_response(seq),
+        };
+    }
 
     let tpdu = match dispatch_gtpu(&header, buf) {
         Ok(Some(tpdu)) => tpdu,
@@ -83,8 +95,9 @@ pub fn handle_uplink<'a>(table: &SessionTable, buf: &'a [u8], _src: SocketAddr) 
 
 #[cfg(test)]
 mod tests {
+    use crate::gtp::build_echo_response;
     use super::*;
-    use crate::gtp::fixtures::gpdu;
+    use crate::gtp::fixtures::{echo_request, gpdu};
     use crate::upf::Session;
 
     const TEID: u32 = 0x1234_5678;
@@ -153,19 +166,6 @@ mod tests {
 
         assert!(
             matches!(action, UplinkAction::Drop(UplinkDropReason::UnknownTeid(t)) if t == TEID),
-            "got {action:?}"
-        );
-    }
-
-    #[test]
-    fn echo_request_not_forwarded_even_if_teid_zero_is_mapped() {
-        let buf = [0x32, 0x01, 0x00, 0x04, 0, 0, 0, 0, 0x00, 0x01, 0x00, 0x00];
-        let table = table_with(0, sink());
-
-        let action = handle_uplink(&table, &buf, src());
-
-        assert!(
-            matches!(action, UplinkAction::Drop(UplinkDropReason::NotGpdu(_))),
             "got {action:?}"
         );
     }
@@ -310,6 +310,46 @@ mod tests {
 
         assert!(
             matches!(action, DownlinkAction::Drop(DownlinkDropReason::NotIpv4)),
+            "got {action:?}"
+        );
+    }
+
+    #[test]
+    fn echo_request_gets_reply_to_sender() {
+        let table = table_with(0, sink());
+
+        let buf = echo_request(0x1234);
+        let action = handle_uplink(&table, &buf, src());
+
+        let UplinkAction::Reply { dst, datagram } = action else {
+            panic!("expected Reply, got {action:?}");
+        };
+        assert_eq!(dst, src());
+        assert_eq!(datagram, build_echo_response(0x1234));
+    }
+
+    #[test]
+    fn echo_response_is_not_answered() {
+        let table = table_with(TEID, sink());
+
+        let buf = build_echo_response(5);
+        let action = handle_uplink(&table, &buf, src());
+
+        assert!(
+            matches!(action, UplinkAction::Drop(UplinkDropReason::NotGpdu(_))),
+            "got {action:?}"
+        );
+    }
+
+    #[test]
+    fn echo_request_without_sequence_is_malformed() {
+        let buf = [0x30, 0x01, 0x00, 0x00, 0, 0, 0, 0];
+        let table = table_with(TEID, sink());
+
+        let action = handle_uplink(&table, &buf, src());
+
+        assert!(
+            matches!(action, UplinkAction::Drop(UplinkDropReason::Malformed(_))),
             "got {action:?}"
         );
     }

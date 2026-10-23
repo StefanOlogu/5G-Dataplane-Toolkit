@@ -15,8 +15,8 @@ pub struct GtpHeader {
 }
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MessageType {
-    Request,
-    Response,
+    EchoRequest,
+    EchoResponse,
     ErrorIndication,
     HeaderExtension,
     EndMarker,
@@ -126,8 +126,8 @@ impl GtpHeader {
 impl From<u8> for MessageType {
     fn from(n: u8) -> Self {
         match n {
-            1 => MessageType::Request,
-            2 => MessageType::Response,
+            1 => MessageType::EchoRequest,
+            2 => MessageType::EchoResponse,
             26 => MessageType::ErrorIndication,
             31 => MessageType::HeaderExtension,
             254 => MessageType::EndMarker,
