@@ -13,6 +13,7 @@ async fn main() -> Result<(), BoxError> {
         dl_teid: 0x0000_0001,
         gnb: "127.0.0.1:2153".parse()?,
         n6_peer: "127.0.0.1:9000".parse()?,
+        qfi: 9,
     };
 
     table.insert(session)?;

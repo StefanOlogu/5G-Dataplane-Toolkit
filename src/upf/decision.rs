@@ -1,4 +1,4 @@
-use crate::gtp::{build_echo_response, dispatch_gtpu, parse_gtpu_header, write_gtpu_header, MessageType};
+use crate::gtp::{build_echo_response, dispatch_gtpu, parse_gtpu_header,MessageType, DL_HEADER_LEN, write_gtpu_dl_header};
 use crate::upf::table::SessionTable;
 use crate::wire::BoxError;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -18,6 +18,7 @@ pub enum UplinkDropReason {
 }
 
 pub const HEADROOM: usize = 16;
+const _: () = assert!(HEADROOM >= DL_HEADER_LEN);
 
 #[derive(Debug)]
 pub enum DownlinkAction<'a> {
@@ -49,9 +50,9 @@ pub fn handle_downlink<'a>(table: &SessionTable, buf: &'a mut [u8], n: usize) ->
         None => return DownlinkAction::Drop(DownlinkDropReason::UnknownUe(dst_ip)),
     };
 
-    match write_gtpu_header(session.dl_teid,n,&mut buf[HEADROOM - 8..HEADROOM]) {
+    match write_gtpu_dl_header(session.dl_teid, session.qfi, n, &mut buf[HEADROOM - DL_HEADER_LEN..HEADROOM]) {
         Ok(_) => DownlinkAction::Forward {
-            dst: session.gnb, datagram: &buf[HEADROOM - 8..HEADROOM + n]
+            dst: session.gnb, datagram: &buf[HEADROOM - DL_HEADER_LEN..HEADROOM + n]
         },
         Err(e) => DownlinkAction::Drop(DownlinkDropReason::Encap(e)),
     }
@@ -117,6 +118,7 @@ mod tests {
             dl_teid: 0x0000_0001,
             gnb: "10.0.0.2:1000".parse().unwrap(),
             n6_peer,
+            qfi:9,
         }
     }
     fn table_with(teid: u32, n6_peer: SocketAddr) -> SessionTable {
@@ -252,7 +254,8 @@ mod tests {
             panic!("expected Forward, got {action:?}");
         };
         assert_eq!(dst, "10.0.0.2:1000".parse::<SocketAddr>().unwrap());
-        assert_eq!(datagram.len(), 8 + n);
+        assert_eq!(datagram.len(), DL_HEADER_LEN + n);
+        assert_eq!(datagram[14], 9); //QFI check
 
         let (header, _) = parse_gtpu_header(datagram).unwrap();
         assert_eq!(header.teid(), 0x0000_0001);

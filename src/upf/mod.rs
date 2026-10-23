@@ -101,6 +101,7 @@ mod tests {
                 dl_teid: 0x0000_0001,
                 gnb: gnb.local_addr().unwrap(),
                 n6_peer: sink.local_addr().unwrap(),
+                qfi: 9,
             })
             .unwrap();
 
