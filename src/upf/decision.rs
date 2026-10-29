@@ -1,4 +1,7 @@
-use crate::gtp::{build_echo_response, dispatch_gtpu, parse_gtpu_header,MessageType, DL_HEADER_LEN, write_gtpu_dl_header};
+use crate::gtp::{
+    DL_HEADER_LEN, MessageType, build_echo_response, dispatch_gtpu, parse_gtpu_header,
+    write_gtpu_dl_header,
+};
 use crate::upf::table::SessionTable;
 use crate::wire::BoxError;
 use std::net::{Ipv4Addr, SocketAddr};
@@ -6,7 +9,7 @@ use std::net::{Ipv4Addr, SocketAddr};
 #[derive(Debug)]
 pub enum UplinkAction<'a> {
     Forward { dst: SocketAddr, payload: &'a [u8] },
-    Reply { dst: SocketAddr, datagram : [u8;14]},
+    Reply { dst: SocketAddr, datagram: [u8; 14] },
     Drop(UplinkDropReason),
 }
 
@@ -33,30 +36,39 @@ pub enum DownlinkDropReason {
     Encap(BoxError),
 }
 
-pub fn handle_downlink<'a>(table: &SessionTable, buf: &'a mut [u8], n: usize) -> DownlinkAction<'a>{
-    let packet= match buf.get(HEADROOM.. HEADROOM + n){
+pub fn handle_downlink<'a>(
+    table: &SessionTable,
+    buf: &'a mut [u8],
+    n: usize,
+) -> DownlinkAction<'a> {
+    let packet = match buf.get(HEADROOM..HEADROOM + n) {
         Some(packet) => packet,
         None => return DownlinkAction::Drop(DownlinkDropReason::NotIpv4),
     };
 
-    if packet.len() < 20 || packet[0] >> 4 != 4{
-        return DownlinkAction::Drop(DownlinkDropReason::NotIpv4)
+    if packet.len() < 20 || packet[0] >> 4 != 4 {
+        return DownlinkAction::Drop(DownlinkDropReason::NotIpv4);
     }
 
     let dst_ip = Ipv4Addr::new(packet[16], packet[17], packet[18], packet[19]);
 
-    let session = match table.lookup_downlink(dst_ip){
+    let session = match table.lookup_downlink(dst_ip) {
         Some(session) => session,
         None => return DownlinkAction::Drop(DownlinkDropReason::UnknownUe(dst_ip)),
     };
 
-    match write_gtpu_dl_header(session.dl_teid, session.qfi, n, &mut buf[HEADROOM - DL_HEADER_LEN..HEADROOM]) {
+    match write_gtpu_dl_header(
+        session.dl_teid,
+        session.qfi,
+        n,
+        &mut buf[HEADROOM - DL_HEADER_LEN..HEADROOM],
+    ) {
         Ok(_) => DownlinkAction::Forward {
-            dst: session.gnb, datagram: &buf[HEADROOM - DL_HEADER_LEN..HEADROOM + n]
+            dst: session.gnb,
+            datagram: &buf[HEADROOM - DL_HEADER_LEN..HEADROOM + n],
         },
         Err(e) => DownlinkAction::Drop(DownlinkDropReason::Encap(e)),
     }
-
 }
 
 pub fn handle_uplink<'a>(table: &SessionTable, buf: &'a [u8], src: SocketAddr) -> UplinkAction<'a> {
@@ -96,8 +108,8 @@ pub fn handle_uplink<'a>(table: &SessionTable, buf: &'a [u8], src: SocketAddr) -
 
 #[cfg(test)]
 mod tests {
-    use crate::gtp::build_echo_response;
     use super::*;
+    use crate::gtp::build_echo_response;
     use crate::gtp::fixtures::{echo_request, gpdu};
     use crate::upf::Session;
 
@@ -118,7 +130,7 @@ mod tests {
             dl_teid: 0x0000_0001,
             gnb: "10.0.0.2:1000".parse().unwrap(),
             n6_peer,
-            qfi:9,
+            qfi: 9,
         }
     }
     fn table_with(teid: u32, n6_peer: SocketAddr) -> SessionTable {

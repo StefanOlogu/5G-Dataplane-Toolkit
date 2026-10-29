@@ -15,12 +15,12 @@ pub fn build_gtpu_header(teid: u32, tpdu: &[u8]) -> Result<Vec<u8>, BoxError> {
     Ok(buf)
 }
 
-pub fn write_gtpu_header(teid: u32, payload_len: usize, out: &mut [u8]) -> Result<usize, BoxError>{
+pub fn write_gtpu_header(teid: u32, payload_len: usize, out: &mut [u8]) -> Result<usize, BoxError> {
     if payload_len > u16::MAX as usize {
         return Err(From::from("T-PDU too large for GTP-U length field"));
     }
 
-    if out.len() < 8{
+    if out.len() < 8 {
         return Err(From::from("Output buffer too small for GTP-U header"));
     }
 
@@ -35,32 +35,32 @@ pub fn build_echo_response(seq_num: u16) -> [u8; 14] {
     let [seq_hi, seq_lo] = seq_num.to_be_bytes();
 
     [
-        0x32,
-        0x02,
-        0x00, 0x06,
-        0x00, 0x00, 0x00, 0x00,
-        seq_hi,
-        seq_lo,
-        0x00,
-        0x00,
-        0x0E,
-        0x00,
+        0x32, 0x02, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, seq_hi, seq_lo, 0x00, 0x00, 0x0E, 0x00,
     ]
 }
 
 pub const DL_HEADER_LEN: usize = 16;
 
-pub fn write_gtpu_dl_header(teid: u32, qfi: u8, payload_len: usize, out: &mut [u8]) -> Result<usize, BoxError>{
-    if qfi >63 {
+pub fn write_gtpu_dl_header(
+    teid: u32,
+    qfi: u8,
+    payload_len: usize,
+    out: &mut [u8],
+) -> Result<usize, BoxError> {
+    if qfi > 63 {
         return Err(From::from("QFI too large"));
     }
 
     if out.len() < DL_HEADER_LEN {
-        return Err(From::from("Output buffer too small for a PDU Session Container"));
+        return Err(From::from(
+            "Output buffer too small for a PDU Session Container",
+        ));
     }
 
     if payload_len > u16::MAX as usize - 8 {
-        return Err(From::from("Payload length too large for a PDU Session Container"));
+        return Err(From::from(
+            "Payload length too large for a PDU Session Container",
+        ));
     }
 
     out[0] = 0x34;
@@ -70,7 +70,6 @@ pub fn write_gtpu_dl_header(teid: u32, qfi: u8, payload_len: usize, out: &mut [u
     out[8..12].copy_from_slice(&[0x00, 0x00, 0x00, 0x85]);
     out[12..16].copy_from_slice(&[0x01, 0x00, qfi, 0x00]);
     Ok(DL_HEADER_LEN)
-
 }
 
 #[cfg(test)]
@@ -129,11 +128,7 @@ mod tests {
     #[test]
     fn echo_response_exact_bytes() {
         let expected = [
-            0x32, 0x02, 0x00, 0x06,
-            0x00, 0x00, 0x00, 0x00,
-            0xAB, 0xCD,
-            0x00, 0x00,
-            0x0E, 0x00,
+            0x32, 0x02, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00, 0xAB, 0xCD, 0x00, 0x00, 0x0E, 0x00,
         ];
         assert_eq!(build_echo_response(0xABCD), expected);
     }
@@ -155,10 +150,8 @@ mod tests {
         assert_eq!(
             out,
             [
-                0x34, 0xFF, 0x00, 0x0C,
-                0x11, 0x22, 0x33, 0x44,
-                0x00, 0x00, 0x00, 0x85,
-                0x01, 0x00, 0x09, 0x00,
+                0x34, 0xFF, 0x00, 0x0C, 0x11, 0x22, 0x33, 0x44, 0x00, 0x00, 0x00, 0x85, 0x01, 0x00,
+                0x09, 0x00,
             ]
         );
     }

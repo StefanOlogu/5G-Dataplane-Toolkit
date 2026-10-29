@@ -1,37 +1,40 @@
+use crate::upf::decision::{
+    DownlinkAction, HEADROOM, UplinkAction, handle_downlink, handle_uplink,
+};
 use std::net::SocketAddr;
-use crate::upf::decision::{handle_uplink, UplinkAction, HEADROOM, handle_downlink, DownlinkAction};
 use tokio::net::UdpSocket;
+use std::sync::Arc;
 
 mod decision;
 mod table;
 
 pub use crate::upf::table::{Session, SessionTable};
 
+#[derive(Clone)]
 pub struct Upf {
-    n3: UdpSocket,
-    n6: UdpSocket,
-    table: SessionTable,
+    n3: Arc<UdpSocket>,
+    n6: Arc<UdpSocket>,
+    table: Arc<SessionTable>,
 }
 
 impl Upf {
     pub fn new(n3: UdpSocket, n6: UdpSocket, table: SessionTable) -> Self {
-        Self { n3, n6, table }
+        Self {
+            n3: Arc::new(n3),
+            n6: Arc::new(n6),
+            table: Arc::new(table),
+        }
     }
 
     pub async fn run(self) -> std::io::Result<()> {
-        let mut ul_buf = vec![0u8; 65536];
-        let mut dl_buf = vec![0u8; HEADROOM + 65536];
-        loop {
-            tokio::select! {
-                res = self.n3.recv_from(&mut ul_buf) => match res {
-                    Ok((n, src)) => self.uplink(&ul_buf[..n], src).await,
-                    Err(e) => eprintln!("n3 recv error: {e}"),
-                },
-                res = self.n6.recv_from(&mut dl_buf[HEADROOM..]) => match res {
-                    Ok((n, src)) => self.downlink(&mut dl_buf, n, src).await,
-                    Err(e) => eprintln!("n6 recv error: {e}"),
-                },
-            }
+        let mut tasks = tokio::task::JoinSet::new();
+        tasks.spawn(self.clone().uplink_loop());
+        tasks.spawn(self.downlink_loop());
+
+        match tasks.join_next().await {
+            Some(Ok(result)) => result,
+            Some(Err(join_err)) => Err(std::io::Error::other(join_err)),
+            None => Ok(()),
         }
     }
 
@@ -45,15 +48,27 @@ impl Upf {
             }
 
             UplinkAction::Reply { dst, datagram } => {
-                self.n3.send_to(&datagram, dst).await.unwrap();
+                if let Err(e) = self.n3.send_to(&datagram, dst).await {
+                    eprintln!("n3 echo reply to {dst} failed: {e}");
+                }
             }
 
             UplinkAction::Drop(reason) => eprintln!("Uplink dropped from {src}: {reason:?}"),
         }
     }
 
-    async fn downlink(&self, buf: &mut [u8],n: usize, src: SocketAddr) {
-        let action = handle_downlink(&self.table, buf,n);
+    async fn uplink_loop(self) -> std::io::Result<()> {
+        let mut buf = vec![0u8; 65536];
+        loop {
+            match self.n3.recv_from(&mut buf).await {
+                Ok((n, src)) => self.uplink(&buf[..n], src).await,
+                Err(e) => eprintln!("n3 recv error: {e}"),
+            }
+        }
+    }
+
+    async fn downlink(&self, buf: &mut [u8], n: usize, src: SocketAddr) {
+        let action = handle_downlink(&self.table, buf, n);
         match action {
             DownlinkAction::Forward { dst, datagram } => {
                 if let Err(e) = self.n3.send_to(datagram, dst).await {
@@ -63,16 +78,26 @@ impl Upf {
             DownlinkAction::Drop(reason) => eprintln!("Downlink dropped from {src}: {reason:?}"),
         }
     }
+
+    async fn downlink_loop(self) -> std::io::Result<()> {
+        let mut buf = vec![0u8; HEADROOM + 65536];
+        loop {
+            match self.n6.recv_from(&mut buf[HEADROOM..]).await {
+                Ok((n, src)) => self.downlink(&mut buf,n, src).await,
+                Err(e) => eprintln!("n6 recv error: {e}"),
+            }
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::gtp::fixtures::gpdu;
+    use crate::gtp::{dispatch_gtpu, parse_gtpu_header};
     use std::time::Duration;
     use tokio::task::JoinHandle;
     use tokio::time::timeout;
-    use crate::gtp::{dispatch_gtpu, parse_gtpu_header};
 
     const TEID: u32 = 0x1234_5678;
 

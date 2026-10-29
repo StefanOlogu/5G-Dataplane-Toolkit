@@ -4,8 +4,8 @@ mod gtpu_builder;
 mod gtpu_header;
 
 pub use dispatch::*;
-pub use gtpu_header::*;
 pub use gtpu_builder::*;
+pub use gtpu_header::*;
 
 #[cfg(test)]
 mod tests {

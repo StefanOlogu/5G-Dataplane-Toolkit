@@ -9,7 +9,7 @@ pub struct Session {
     pub dl_teid: u32,
     pub gnb: SocketAddr,
     pub n6_peer: SocketAddr,
-    pub qfi:u8,
+    pub qfi: u8,
 }
 
 #[derive(Debug, Default)]
