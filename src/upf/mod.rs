@@ -1,12 +1,13 @@
-use crate::upf::decision::{
-    DownlinkAction, HEADROOM, UplinkAction, handle_downlink, handle_uplink,
-};
+use crate::upf::decision::{handle_downlink, handle_uplink, DownlinkAction, UplinkAction, UplinkDropReason, HEADROOM, DownlinkDropReason};
 use std::net::SocketAddr;
 use tokio::net::UdpSocket;
 use std::sync::Arc;
+use crate::upf::counters::inc;
+pub use crate::upf::counters::{CounterSnapshot, Counters};
 
 mod decision;
 mod table;
+mod counters;
 
 pub use crate::upf::table::{Session, SessionTable};
 
@@ -15,19 +16,26 @@ pub struct Upf {
     n3: Arc<UdpSocket>,
     n6: Arc<UdpSocket>,
     table: Arc<SessionTable>,
+    counters: Arc<Counters>,
 }
 
 impl Upf {
+
     pub fn new(n3: UdpSocket, n6: UdpSocket, table: SessionTable) -> Self {
         Self {
             n3: Arc::new(n3),
             n6: Arc::new(n6),
             table: Arc::new(table),
+            counters: Arc::new(Counters::default()),
         }
     }
 
+    pub fn counters(&self) -> Arc<Counters> {
+        Arc::clone(&self.counters)
+    }
     pub async fn run(self) -> std::io::Result<()> {
         let mut tasks = tokio::task::JoinSet::new();
+        tasks.spawn(self.clone().report_loop());
         tasks.spawn(self.clone().uplink_loop());
         tasks.spawn(self.downlink_loop());
 
@@ -39,21 +47,27 @@ impl Upf {
     }
 
     async fn uplink(&self, packet: &[u8], src: SocketAddr) {
-        let action = handle_uplink(&self.table, packet, src);
-        match action {
+        let c = &self.counters;
+        match handle_uplink(&self.table, packet, src) {
             UplinkAction::Forward { dst, payload } => {
+                inc(&c.ul_forwarded);
                 if let Err(e) = self.n6.send_to(payload, dst).await {
+                    inc(&c.send_errors);
                     eprintln!("n6 send to {dst} failed: {e}");
                 }
             }
-
             UplinkAction::Reply { dst, datagram } => {
+                inc(&c.ul_echo_replies);
                 if let Err(e) = self.n3.send_to(&datagram, dst).await {
+                    inc(&c.send_errors);
                     eprintln!("n3 echo reply to {dst} failed: {e}");
                 }
             }
-
-            UplinkAction::Drop(reason) => eprintln!("Uplink dropped from {src}: {reason:?}"),
+            UplinkAction::Drop(reason) => match reason {
+                UplinkDropReason::Malformed(_) => inc(&c.ul_malformed),
+                UplinkDropReason::NotGpdu(_) => inc(&c.ul_not_gpdu),
+                UplinkDropReason::UnknownTeid(_) => inc(&c.ul_unknown_teid),
+            },
         }
     }
 
@@ -62,20 +76,29 @@ impl Upf {
         loop {
             match self.n3.recv_from(&mut buf).await {
                 Ok((n, src)) => self.uplink(&buf[..n], src).await,
-                Err(e) => eprintln!("n3 recv error: {e}"),
+                Err(e) => {
+                    eprintln!("n3 recv error: {e}");
+                    inc(&self.counters.recv_errors);
+                },
             }
         }
     }
 
-    async fn downlink(&self, buf: &mut [u8], n: usize, src: SocketAddr) {
-        let action = handle_downlink(&self.table, buf, n);
-        match action {
+    async fn downlink(&self, buf: &mut [u8], n: usize, _src: SocketAddr) {
+        let c = &self.counters;
+        match handle_downlink(&self.table, buf, n) {
             DownlinkAction::Forward { dst, datagram } => {
+                inc(&c.dl_forwarded);
                 if let Err(e) = self.n3.send_to(datagram, dst).await {
+                    inc(&c.send_errors);
                     eprintln!("n3 send to {dst} failed: {e}");
                 }
             }
-            DownlinkAction::Drop(reason) => eprintln!("Downlink dropped from {src}: {reason:?}"),
+            DownlinkAction::Drop(reason) => match reason {
+                DownlinkDropReason::NotIpv4 => inc(&c.dl_not_ipv4),
+                DownlinkDropReason::UnknownUe(_) => inc(&c.dl_unknown_ue),
+                DownlinkDropReason::Encap(_) => inc(&c.dl_encap_error),
+            },
         }
     }
 
@@ -84,7 +107,23 @@ impl Upf {
         loop {
             match self.n6.recv_from(&mut buf[HEADROOM..]).await {
                 Ok((n, src)) => self.downlink(&mut buf,n, src).await,
-                Err(e) => eprintln!("n6 recv error: {e}"),
+                Err(e) => {
+                    eprintln!("n6 recv error: {e}");
+                    inc(&self.counters.recv_errors);
+                }
+            }
+        }
+    }
+
+    async fn report_loop(self) -> std::io::Result<()> {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(10));
+        let mut last = CounterSnapshot::default();
+        loop {
+            tick.tick().await;
+            let now = self.counters.snapshot();
+            if now != last {
+                eprintln!("{now:#?}");
+                last = now;
             }
         }
     }
