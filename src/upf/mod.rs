@@ -132,8 +132,8 @@ impl Upf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gtp::fixtures::gpdu;
-    use crate::gtp::{dispatch_gtpu, parse_gtpu_header};
+    use crate::gtp::fixtures::{echo_request, gpdu};
+    use crate::gtp::{build_echo_response, dispatch_gtpu, parse_gtpu_header};
     use std::time::Duration;
     use tokio::task::JoinHandle;
     use tokio::time::timeout;
@@ -146,6 +146,7 @@ mod tests {
         n3_addr: SocketAddr,
         n6_addr: SocketAddr,
         handle: JoinHandle<std::io::Result<()>>,
+        counters: Arc<Counters>,
     }
 
     async fn start_upf() -> Harness {
@@ -169,13 +170,17 @@ mod tests {
             })
             .unwrap();
 
-        let handle = tokio::spawn(Upf::new(n3, n6, table).run());
+        let upf = Upf::new(n3, n6, table);
+        let counters = upf.counters();
+        let handle = tokio::spawn(upf.run());
+
         Harness {
             gnb,
             sink,
             n3_addr,
             n6_addr,
             handle,
+            counters
         }
     }
 
@@ -221,6 +226,17 @@ mod tests {
         let (data, _) = recv_one(&h.sink).await;
         assert_eq!(data, [9, 9, 9, 9]);
         assert!(!h.handle.is_finished(), "UPF loop exited");
+
+        assert_eq!(
+            h.counters.snapshot(),
+            CounterSnapshot {
+                ul_malformed: 2,
+                ul_unknown_teid: 1,
+                ul_echo_replies: 1,
+                ul_forwarded: 1,
+                ..Default::default()
+            }
+        );
         h.handle.abort();
     }
 
@@ -248,4 +264,41 @@ mod tests {
         assert_eq!(dispatch_gtpu(&header, &data).unwrap(), Some(&packet[..]));
         h.handle.abort();
     }
+    #[tokio::test]
+    async fn downlink_counts_drops_and_forwards() {
+        let h = start_upf().await;
+
+        let mut ipv6 = ipv4_packet("10.45.0.2", &[1]);
+        ipv6[0] = 0x60;
+        h.sink.send_to(&ipv6, h.n6_addr).await.unwrap();
+        h.sink.send_to(&ipv4_packet("10.45.0.3", &[1]), h.n6_addr).await.unwrap(); // no session
+        h.sink.send_to(&ipv4_packet("10.45.0.2", &[1]), h.n6_addr).await.unwrap(); // probe
+
+        recv_one(&h.gnb).await;
+
+        assert_eq!(
+            h.counters.snapshot(),
+            CounterSnapshot {
+                dl_not_ipv4: 1,
+                dl_unknown_ue: 1,
+                dl_forwarded: 1,
+                ..Default::default()
+            }
+        );
+        h.handle.abort();
+    }
+
+    #[tokio::test]
+    async fn answers_echo_request_on_n3() {
+        let h = start_upf().await;
+
+        h.gnb.send_to(&echo_request(0x4242), h.n3_addr).await.unwrap();
+
+        let (data, from) = recv_one(&h.gnb).await;
+        assert_eq!(from, h.n3_addr);
+        assert_eq!(data, build_echo_response(0x4242));
+        assert_eq!(h.counters.snapshot().ul_echo_replies, 1);
+        h.handle.abort();
+    }
+
 }
